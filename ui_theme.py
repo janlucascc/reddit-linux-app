@@ -7,9 +7,28 @@ com conformidade matemática 100% WCAG 2.1 AA/AAA e reatividade via ThemeManager
 from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any, Dict, Optional
+from pathlib import Path
 from PySide6.QtCore import QObject, Signal
-from PySide6.QtGui import QColor, QPalette
+from PySide6.QtGui import QColor, QFontDatabase, QPalette
 from PySide6.QtWidgets import QApplication
+
+BRAND_FONT_PATH = Path(__file__).resolve().parent / "assets" / "fonts" / "RedditSans.ttf"
+_BRAND_FONT_LOADED: Optional[bool] = None
+
+
+def load_brand_fonts() -> bool:
+    """Registra a fonte oficial Reddit Sans (OFL) no Qt; fallback às fontes do sistema se ausente."""
+    global _BRAND_FONT_LOADED
+    if _BRAND_FONT_LOADED is not None:
+        return _BRAND_FONT_LOADED
+    ok = False
+    try:
+        if BRAND_FONT_PATH.exists():
+            ok = QFontDatabase.addApplicationFont(str(BRAND_FONT_PATH)) >= 0
+    except Exception:
+        ok = False
+    _BRAND_FONT_LOADED = ok
+    return ok
 
 
 # =============================================================================
@@ -90,7 +109,7 @@ LIGHT_PALETTE: Dict[str, str] = {
     # Estados Semânticos e Badges
     "vote_upvote": "#FF4500",               # Upvote ativo
     "vote_downvote": "#3366FF",             # Downvote ativo em fundo claro (4.68:1 AA)
-    "action_link": "#0066B2",               # Links e menções em azul calibrado (5.93:1 AA)
+    "action_link": "#0077D6",               # Alien Blue oficial Reddit (4.56:1 AA)
     "badge_op": "#0066B2",                  # Badge OP com texto branco (5.93:1 AA)
     "badge_op_soft": "#E5F2FA",             # Fundo OP claro
     "badge_mod": "#1B6E32",                 # Verde sólido para texto branco (6.32:1 AA)
@@ -227,7 +246,7 @@ def build_stylesheet(dark: bool = True) -> str:
        ====================================================================== */
     QWidget {{
         color: {p['text_primary']};
-        font-family: "Inter", "Cantarell", "Noto Sans", "Ubuntu", system-ui, sans-serif;
+        font-family: "Reddit Sans", "Inter", "Cantarell", "Noto Sans", "Ubuntu", system-ui, sans-serif;
     }}
 
     QMainWindow, QWidget#RootWidget, QDialog {{
@@ -337,9 +356,10 @@ def build_stylesheet(dark: bool = True) -> str:
         background: transparent;
         color: {p['text_primary']};
         border: none;
-        font-size: 23px;
-        font-weight: 900;
-        letter-spacing: -0.8px;
+        font-family: "Reddit Sans", "Inter", sans-serif;
+        font-size: 24px;
+        font-weight: 800;
+        letter-spacing: -1px;
         padding: 0px 4px;
     }}
     QPushButton#BrandButton:hover {{
@@ -1092,6 +1112,7 @@ class ThemeManager(QObject):
         """Aplica QPalette nativa, QSS centralizado e emite notificação reativa."""
         app = QApplication.instance()
         if isinstance(app, QApplication):
+            load_brand_fonts()
             app.setPalette(self.build_qt_palette(dark=self.is_dark))
             app.setStyleSheet(self.build_stylesheet(dark=self.is_dark))
 

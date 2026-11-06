@@ -278,6 +278,14 @@ class RedditLogoWidget(QWidget):
         painter.setBrush(brand)
         painter.drawEllipse(QRectF(1, 1, w - 2, h - 2))
 
+        # Balão de conversação (Pentagram): rabicho no canto inferior esquerdo
+        tail = QPainterPath()
+        tail.moveTo(w * 0.10, h * 0.62)
+        tail.lineTo(w * 0.02, h * 0.98)
+        tail.lineTo(w * 0.38, h * 0.88)
+        tail.closeSubpath()
+        painter.drawPath(tail)
+
         painter.setBrush(fg)
         painter.drawEllipse(QRectF(w * 0.20, h * 0.34, w * 0.60, h * 0.44))
 
