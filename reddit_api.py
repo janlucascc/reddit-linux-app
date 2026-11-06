@@ -115,13 +115,20 @@ class PostItem:
     flair: str = ""
     is_video: bool = False
     video_url: str = ""
+    video_dash_url: str = ""
+    video_hls_url: str = ""
     is_self: bool = False
     over_18: bool = False
+    spoiler: bool = False
+    oc: bool = False
     stickied: bool = False
     upvote_ratio: float = 1.0
+    likes: Optional[bool] = None
     thumbnail_url: str = ""
     preview_image_url: str = ""
     highres_image_url: str = ""
+    preview_width: int = 0
+    preview_height: int = 0
     gallery_images: List[str] = field(default_factory=list)
     translated_title: Optional[str] = None
     translated_selftext: Optional[str] = None
@@ -161,6 +168,11 @@ class CommentItem:
     score: int = 1
     depth: int = 0
     is_submitter: bool = False
+    parent_id: str = ""
+    distinguished: str = ""
+    author_flair_text: str = ""
+    likes: Optional[bool] = None
+    children_ids: List[str] = field(default_factory=list)
     translated_body: Optional[str] = None
     show_translated: bool = False
 
@@ -294,6 +306,9 @@ class RedditClient:
         title: str,
         kind: str = "self",
         text_or_url: str = "",
+        nsfw: bool = False,
+        spoiler: bool = False,
+        oc: bool = False,
     ) -> Tuple[bool, str, Optional[str]]:
         """
         Publica um post em um subreddit (kind: 'self' para texto, 'link' para URL).
@@ -313,7 +328,7 @@ class RedditClient:
             "User-Agent": USER_AGENT,
             "Authorization": f"Bearer {token}",
         }
-        data = {
+        data: Dict[str, Any] = {
             "api_type": "json",
             "sr": clean_sub,
             "title": title.strip(),
@@ -321,6 +336,13 @@ class RedditClient:
             "resubmit": "true",
             "sendreplies": "true",
         }
+        if nsfw:
+            data["nsfw"] = "true"
+        if spoiler:
+            data["spoiler"] = "true"
+        if oc:
+            data["original_content"] = "true"
+
         if kind == "self":
             data["text"] = text_or_url
         else:
@@ -345,6 +367,67 @@ class RedditClient:
             return False, f"Falha ao publicar (HTTP {resp.status_code}): {resp.text[:120]}", None
         except Exception as e:
             return False, f"Erro de conexão: {e}", None
+
+    def submit_comment(
+        self,
+        parent_fullname: str,
+        text: str,
+    ) -> Tuple[bool, str, Optional[CommentItem]]:
+        """
+        Publica um comentário ou resposta (parent_fullname: 't3_...' ou 't1_...').
+        Retorna (sucesso, mensagem_ou_erro, CommentItem).
+        """
+        if not text.strip():
+            return False, "Digite o conteúdo do comentário antes de enviar.", None
+
+        token = self._ensure_session()
+        if not token or not self._logged_in_user:
+            return False, "Faça login na sua conta do Reddit para comentar.", None
+
+        if not (parent_fullname.startswith("t3_") or parent_fullname.startswith("t1_")):
+            parent_fullname = f"t1_{parent_fullname}"
+
+        headers = {
+            "User-Agent": USER_AGENT,
+            "Authorization": f"Bearer {token}",
+        }
+        data = {
+            "api_type": "json",
+            "thing_id": parent_fullname,
+            "text": text.strip(),
+        }
+        try:
+            resp = self._session.post(
+                "https://oauth.reddit.com/api/comment",
+                headers=headers,
+                data=data,
+                timeout=15,
+            )
+            if resp.status_code == 200:
+                payload = resp.json()
+                errors = payload.get("json", {}).get("errors", [])
+                if errors:
+                    err_msg = ", ".join(e[1] if len(e) > 1 else str(e) for e in errors)
+                    return False, f"Erro do Reddit: {err_msg}", None
+                things = payload.get("json", {}).get("data", {}).get("things", [])
+                c_id = str(int(time.time()))
+                if things and isinstance(things[0], dict):
+                    td = things[0].get("data", {})
+                    c_id = str(td.get("id") or c_id).replace("t1_", "")
+                username = self._logged_in_user.get("username", "voce")
+                new_item = CommentItem(
+                    id=c_id,
+                    author=username,
+                    body=text.strip(),
+                    created_utc=time.time(),
+                    score=1,
+                    depth=0,
+                    parent_id=parent_fullname,
+                )
+                return True, "Comentário publicado!", new_item
+            return False, f"Falha ao comentar (HTTP {resp.status_code})", None
+        except Exception as exc:
+            return False, f"Erro de conexão: {exc}", None
 
     def logout(self) -> None:
         """Encerra a sessão ativa e redefine para modo anônimo."""
@@ -482,11 +565,19 @@ class RedditClient:
         is_video = bool(d.get("is_video", False))
         is_self = bool(d.get("is_self", False))
         over_18 = bool(d.get("over_18", False))
+        spoiler = bool(d.get("spoiler", False))
+        oc = bool(d.get("is_original_content", False))
         stickied = bool(d.get("stickied", False))
         upvote_ratio = float(d.get("upvote_ratio", 1.0) or 1.0)
+        likes_raw = d.get("likes")
+        likes: Optional[bool] = bool(likes_raw) if isinstance(likes_raw, bool) else None
 
-        # Extração de URL de vídeo nativo do Reddit (BUG-012)
+        # Extração de URL de vídeo nativo do Reddit (BUG-012 + CR-06 DASH/HLS)
         video_url = ""
+        video_dash_url = ""
+        video_hls_url = ""
+        preview_width = 0
+        preview_height = 0
         media_obj = d.get("secure_media") or d.get("media")
         if isinstance(media_obj, dict):
             rv = media_obj.get("reddit_video")
@@ -494,6 +585,10 @@ class RedditClient:
                 video_url = html.unescape(
                     str(rv.get("fallback_url") or rv.get("hls_url") or "")
                 )
+                video_dash_url = html.unescape(str(rv.get("dash_url") or ""))
+                video_hls_url = html.unescape(str(rv.get("hls_url") or ""))
+                preview_width = int(rv.get("width", 0) or 0)
+                preview_height = int(rv.get("height", 0) or 0)
                 if video_url:
                     is_video = True
         if is_video and not video_url and url.startswith("http"):
@@ -530,6 +625,9 @@ class RedditClient:
                     u = html.unescape(str(s_info.get("u") or s_info.get("gif") or ""))
                     if u.startswith("http"):
                         gallery_imgs.append(u)
+                    if not preview_width:
+                        preview_width = int(s_info.get("x", 0) or 0)
+                        preview_height = int(s_info.get("y", 0) or 0)
                 if not preview_img:
                     previews = m_info.get("p")
                     if isinstance(previews, list) and previews:
@@ -554,6 +652,9 @@ class RedditClient:
                         source_url = html.unescape(str(source_obj.get("url", "")))
                         if source_url.startswith("http"):
                             highres_img = source_url
+                        if not preview_width:
+                            preview_width = int(source_obj.get("width", 0) or 0)
+                            preview_height = int(source_obj.get("height", 0) or 0)
                     resolutions = first_img.get("resolutions")
                     if isinstance(resolutions, list) and resolutions:
                         for res in resolutions:
@@ -594,13 +695,20 @@ class RedditClient:
             flair=flair,
             is_video=is_video,
             video_url=video_url,
+            video_dash_url=video_dash_url,
+            video_hls_url=video_hls_url,
             is_self=is_self,
             over_18=over_18,
+            spoiler=spoiler,
+            oc=oc,
             stickied=stickied,
             upvote_ratio=upvote_ratio,
+            likes=likes,
             thumbnail_url=thumb,
             preview_image_url=preview_img,
             highres_image_url=highres_img,
+            preview_width=preview_width,
+            preview_height=preview_height,
             gallery_images=gallery_imgs,
         )
 
@@ -839,12 +947,87 @@ class RedditClient:
         next_cursor = last_fullname if posts else None
         return posts, next_cursor
 
+    def fetch_community_rules(self, subreddit: str) -> List[Dict[str, str]]:
+        """Busca as regras de uma comunidade via /r/{sub}/about/rules."""
+        clean_sub = subreddit.strip().lstrip("/").removeprefix("r/").strip("/")
+        if not clean_sub or clean_sub.lower() in ("popular", "all", "home"):
+            return []
+        try:
+            encoded_sub = quote(clean_sub, safe="")
+            resp = self._oauth_get(f"/r/{encoded_sub}/about/rules")
+            if resp.status_code == 200:
+                rules_raw = resp.json().get("rules", [])
+                result: List[Dict[str, str]] = []
+                for idx, r in enumerate(rules_raw, start=1):
+                    if not isinstance(r, dict):
+                        continue
+                    short_name = html.unescape(str(r.get("short_name") or f"Regra {idx}")).strip()
+                    desc = html.unescape(str(r.get("description") or "")).strip()
+                    result.append({"title": f"{idx}. {short_name}", "description": desc})
+                return result
+        except Exception:
+            pass
+        return []
+
+    def _flatten_comment_tree(
+        self,
+        children: List[Any],
+        post_author: str,
+        out: List[CommentItem],
+        depth: int = 0,
+    ) -> List[str]:
+        """Percorre recursivamente a árvore JSON de comentários em pré-ordem."""
+        direct_ids: List[str] = []
+        for child in children:
+            if not isinstance(child, dict) or child.get("kind") != "t1":
+                continue
+            d = child.get("data") or {}
+            c_id = str(d.get("id") or "")
+            body = html.unescape(str(d.get("body") or "")).strip()
+            if not c_id or not body:
+                continue
+            author = str(d.get("author") or "deleted")
+            score = int(d.get("score", 1) or 1)
+            created_utc = float(d.get("created_utc", 0.0) or 0.0)
+            parent_id = str(d.get("parent_id") or "")
+            distinguished = str(d.get("distinguished") or "")
+            flair = html.unescape(str(d.get("author_flair_text") or "")).strip()
+            is_sub = bool(d.get("is_submitter")) or (author.lower() == post_author.lower())
+            likes_raw = d.get("likes")
+            likes: Optional[bool] = bool(likes_raw) if isinstance(likes_raw, bool) else None
+
+            item = CommentItem(
+                id=c_id,
+                author=author,
+                body=body,
+                created_utc=created_utc,
+                score=score,
+                depth=depth,
+                is_submitter=is_sub,
+                parent_id=parent_id,
+                distinguished=distinguished,
+                author_flair_text=flair,
+                likes=likes,
+            )
+            out.append(item)
+            direct_ids.append(c_id)
+
+            replies = d.get("replies")
+            if isinstance(replies, dict):
+                rep_children = replies.get("data", {}).get("children", [])
+                if isinstance(rep_children, list) and rep_children:
+                    sub_ids = self._flatten_comment_tree(
+                        rep_children, post_author, out, depth + 1
+                    )
+                    item.children_ids.extend(sub_ids)
+        return direct_ids
+
     def fetch_post_comments(
-        self, post: PostItem, limit: int = 60
+        self, post: PostItem, limit: int = 80
     ) -> List[CommentItem]:
         """
-        Busca os comentários de um post via feed Atom oficial (.rss)
-        com retry e backoff exponencial contra HTTP 429 (BUG-006).
+        Busca a árvore de comentários de um post via OAuth JSON (com depth, parent_id,
+        score, badges e replies aninhados) e fallback para feed Atom (.rss) (BUG-006).
         """
         self._ensure_session()
         permalink = post.permalink or f"/r/{post.subreddit}/comments/{post.id}/"
@@ -853,6 +1036,32 @@ class RedditClient:
         if not permalink.startswith("/"):
             permalink = "/" + permalink
         permalink = permalink.rstrip("/")
+
+        # 1. Tentativa via OAuth JSON para preservar hierarquia completa (CR-05)
+        try:
+            oauth_resp = self._oauth_get(
+                permalink, params={"limit": limit, "depth": 10, "sort": "confidence"}
+            )
+            if oauth_resp.status_code == 200:
+                payload = oauth_resp.json()
+                if isinstance(payload, list) and len(payload) >= 2:
+                    # Atualiza selftext do post se vazio
+                    post_children = payload[0].get("data", {}).get("children", [])
+                    if post_children and isinstance(post_children[0], dict):
+                        pd = post_children[0].get("data") or {}
+                        if not post.selftext and pd.get("selftext"):
+                            post.selftext = html.unescape(str(pd.get("selftext", ""))).strip()
+                    comment_children = payload[1].get("data", {}).get("children", [])
+                    flat_comments: List[CommentItem] = []
+                    self._flatten_comment_tree(
+                        comment_children, post.author, flat_comments, depth=0
+                    )
+                    if flat_comments:
+                        return flat_comments
+        except Exception:
+            pass
+
+        # 2. Fallback via feed Atom (.rss) com retry e backoff exponencial
         url = f"https://www.reddit.com{permalink}/.rss"
 
         resp: Optional[requests.Response] = None
@@ -912,6 +1121,7 @@ class RedditClient:
                         body=body,
                         created_utc=created_utc,
                         is_submitter=(author.lower() == post.author.lower()),
+                        parent_id=f"t3_{post.id}",
                     )
                 )
         except Exception as exc:

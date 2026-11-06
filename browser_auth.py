@@ -27,6 +27,7 @@ from PySide6.QtWidgets import (
     QFrame,
     QHBoxLayout,
     QLabel,
+    QLineEdit,
     QProgressBar,
     QPushButton,
     QVBoxLayout,
@@ -35,8 +36,9 @@ from PySide6.QtWidgets import (
 from cryptography.hazmat.backends import default_backend
 from cryptography.hazmat.primitives.ciphers import Cipher, algorithms, modes
 import requests
+from shiboken6 import isValid
 
-from widgets import RedditLogoWidget
+from widgets import RedditLogoWidget, UiSkillsButton
 
 
 SESSION_FILE = Path.home() / ".config" / "reddit-linux-app" / "session.json"
@@ -504,23 +506,27 @@ class BrowserAuthServer(http.server.ThreadingHTTPServer):
 
 
 class BrowserLoginDialog(QDialog):
-    """Diálogo modal no desktop que detecta automaticamente ou abre no navegador."""
+    """
+    Diálogo modal no desktop que detecta automaticamente a sessão do Reddit no navegador
+    ou abre o portal local com stepper visual de 4 estágios e porta dinâmica (CR-07).
+    """
 
     login_completed = Signal(dict)
 
     def __init__(self, parent: Optional[QWidget] = None) -> None:
         super().__init__(parent)
         self.setWindowTitle("Conectar ao Reddit via Navegador")
-        self.setFixedSize(480, 270)
+        self.setFixedSize(540, 410)
         self.setModal(True)
         self.setAttribute(Qt.WidgetAttribute.WA_DeleteOnClose, True)
 
         self._server: Optional[BrowserAuthServer] = None
         self._server_thread: Optional[threading.Thread] = None
+        self._bound_port: int = 0
 
         layout = QVBoxLayout(self)
         layout.setContentsMargins(24, 20, 24, 20)
-        layout.setSpacing(14)
+        layout.setSpacing(12)
 
         header_row = QHBoxLayout()
         header_row.setSpacing(12)
@@ -528,61 +534,154 @@ class BrowserLoginDialog(QDialog):
         header_row.addWidget(logo)
 
         lbl_title = QLabel("Conectar Conta do Reddit")
-        lbl_title.setStyleSheet("font-size: 16px; font-weight: 800; color: #F2F4F5;")
+        lbl_title.setProperty("role", "title")
         header_row.addWidget(lbl_title, 1)
+
+        btn_close = UiSkillsButton("✕")
+        btn_close.setProperty("class", "PillButton")
+        btn_close.setFixedSize(30, 30)
+        btn_close.clicked.connect(self.reject)
+        header_row.addWidget(btn_close)
         layout.addLayout(header_row)
 
-        self.lbl_desc = QLabel("Verificando sessão ativa no seu navegador padrão...")
+        self.lbl_desc = QLabel(
+            "Verificando sessão ativa no seu navegador padrão (Brave, Chrome ou Firefox)..."
+        )
         self.lbl_desc.setWordWrap(True)
-        self.lbl_desc.setStyleSheet("color: #A2B6C0; font-size: 13px; line-height: 1.45;")
+        self.lbl_desc.setProperty("role", "body")
         layout.addWidget(self.lbl_desc)
+
+        # Stepper Visual de 4 Estágios (Sprint 5 & CR-07)
+        stepper_frame = QFrame()
+        stepper_frame.setProperty("class", "InfoPanel")
+        sf_layout = QVBoxLayout(stepper_frame)
+        sf_layout.setContentsMargins(14, 10, 14, 10)
+        sf_layout.setSpacing(6)
+
+        self.step_labels = []
+        for idx, step_txt in enumerate(
+            (
+                "1. Detectando sessão existente nos navegadores locais",
+                "2. Iniciando servidor local de sincronização (127.0.0.1)",
+                "3. Aguardando confirmação no navegador padrão",
+                "4. Validação de token e sincronização concluída",
+            ),
+            start=1,
+        ):
+            lbl_s = QLabel(f"○  {step_txt}")
+            lbl_s.setProperty("role", "caption")
+            sf_layout.addWidget(lbl_s)
+            self.step_labels.append(lbl_s)
+
+        layout.addWidget(stepper_frame)
 
         self.progress = QProgressBar()
         self.progress.setRange(0, 0)
-        self.progress.setFixedHeight(4)
+        self.progress.setFixedHeight(5)
         self.progress.setTextVisible(False)
-        self.progress.setStyleSheet(
-            "QProgressBar { background-color: #1A282D; border: none; border-radius: 2px; }"
-            "QProgressBar::chunk { background-color: #FF4500; border-radius: 2px; }"
-        )
         layout.addWidget(self.progress)
 
         self.lbl_status = QLabel("🔍 Detectando sessão no navegador...")
-        self.lbl_status.setStyleSheet("color: #FF8555; font-size: 12px; font-weight: 600;")
+        self.lbl_status.setProperty("role", "status_warn")
         layout.addWidget(self.lbl_status)
+
+        # Painel expansível de Fallback para inserção manual de cookie (CR-07)
+        self.manual_panel = QFrame()
+        self.manual_panel.setProperty("class", "InfoPanel")
+        self.manual_panel.setVisible(False)
+        mp_layout = QHBoxLayout(self.manual_panel)
+        mp_layout.setContentsMargins(10, 8, 10, 8)
+        mp_layout.setSpacing(8)
+
+        self.manual_cookie_input = QLineEdit()
+        self.manual_cookie_input.setPlaceholderText(
+            "Cole seu token_v2 ou cookie reddit_session aqui..."
+        )
+        mp_layout.addWidget(self.manual_cookie_input, 1)
+
+        btn_apply_cookie = UiSkillsButton("Validar")
+        btn_apply_cookie.setProperty("class", "PillButtonAccent")
+        btn_apply_cookie.clicked.connect(self._apply_manual_cookie_fallback)
+        mp_layout.addWidget(btn_apply_cookie)
+
+        layout.addWidget(self.manual_panel)
 
         layout.addStretch(1)
 
         btn_row = QHBoxLayout()
-        btn_row.setSpacing(10)
+        btn_row.setSpacing(8)
 
-        self.btn_reopen = QPushButton("🌐 Abrir no Navegador")
-        self.btn_reopen.setProperty("class", "PillButton")
-        self.btn_reopen.setCursor(QCursor(Qt.CursorShape.PointingHandCursor))
+        self.btn_reopen = UiSkillsButton("🌐 Abrir no Navegador")
+        self.btn_reopen.setProperty("class", "PillButtonAccent")
         self.btn_reopen.clicked.connect(self._open_browser)
         btn_row.addWidget(self.btn_reopen)
 
+        self.btn_manual_toggle = UiSkillsButton("🔑 Cookie Manual")
+        self.btn_manual_toggle.setProperty("class", "PillButton")
+        self.btn_manual_toggle.setToolTip(
+            "Alternativa caso seu navegador esteja isolado em sandbox Flatpak/Snap"
+        )
+        self.btn_manual_toggle.clicked.connect(
+            lambda: self.manual_panel.setVisible(not self.manual_panel.isVisible())
+        )
+        btn_row.addWidget(self.btn_manual_toggle)
+
         btn_row.addStretch(1)
 
-        self.btn_cancel = QPushButton("Cancelar")
+        self.btn_cancel = UiSkillsButton("Cancelar")
         self.btn_cancel.setProperty("class", "PillButton")
-        self.btn_cancel.setCursor(QCursor(Qt.CursorShape.PointingHandCursor))
         self.btn_cancel.clicked.connect(self.reject)
         btn_row.addWidget(self.btn_cancel)
 
         layout.addLayout(btn_row)
 
-        # Inicia verificação imediata
+        self._set_active_step(1)
         QTimer.singleShot(250, self._check_auto_detect_or_start_server)
 
+    def _set_active_step(self, active_step: int, port_info: str = "") -> None:
+        base_texts = [
+            "1. Detectando sessão existente nos navegadores locais",
+            f"2. Servidor local ativo em {port_info}"
+            if port_info
+            else "2. Iniciando servidor local de sincronização (127.0.0.1)",
+            "3. Aguardando confirmação no navegador padrão",
+            "4. Validação de token e sincronização concluída",
+        ]
+        for idx, lbl in enumerate(self.step_labels, start=1):
+            if not isValid(lbl):
+                continue
+            txt = base_texts[idx - 1]
+            if idx < active_step:
+                lbl.setText(f"✓  {txt}")
+                lbl.setProperty("role", "status_ok")
+            elif idx == active_step:
+                lbl.setText(f"●  {txt}")
+                lbl.setProperty("role", "subtitle")
+            else:
+                lbl.setText(f"○  {txt}")
+                lbl.setProperty("role", "caption")
+            lbl.style().unpolish(lbl)
+            lbl.style().polish(lbl)
+
+    def _set_status(self, text: str, role: str = "status_warn") -> None:
+        if not isValid(self.lbl_status):
+            return
+        self.lbl_status.setText(text)
+        self.lbl_status.setProperty("role", role)
+        self.lbl_status.style().unpolish(self.lbl_status)
+        self.lbl_status.style().polish(self.lbl_status)
+
     def _check_auto_detect_or_start_server(self) -> None:
+        if not isValid(self):
+            return
         cookies, user = detect_browser_reddit_session()
         if cookies and user:
-            # Conta encontrada diretamente!
             uname = user.get("username", "Usuário")
-            self.lbl_desc.setText(f"Conta identificada com sucesso no seu navegador: <b>u/{uname}</b>!")
-            self.lbl_status.setText("✓ Conectando...")
-            self.lbl_status.setStyleSheet("color: #46D160; font-size: 13px; font-weight: 700;")
+            self._set_active_step(5)
+            self.lbl_desc.setText(
+                f"Conta identificada automaticamente no seu navegador: <b>u/{uname}</b>!"
+            )
+            self._set_status(f"✓ Conectado como u/{uname}!", "status_ok")
             self.progress.setVisible(False)
 
             SESSION_FILE.parent.mkdir(parents=True, exist_ok=True)
@@ -592,43 +691,82 @@ class BrowserLoginDialog(QDialog):
             QTimer.singleShot(600, self.accept)
             return
 
-        # Se não achou na primeira tentativa, inicia o servidor local e abre o navegador
         self.lbl_desc.setText(
-            "Abra o Reddit no seu navegador padrão (Brave, Chrome ou Firefox) para conectar sua conta."
+            "Abra o Reddit no seu navegador padrão para sincronizar sua conta com um clique."
         )
-        self.lbl_status.setText("⏳ Aguardando login no navegador...")
         self._start_server_and_open_browser()
 
     def _start_server_and_open_browser(self) -> None:
-        port = 8765
-        for p in range(8765, 8780):
+        # Escaneia portas 8765..8779 com fallback para porta efêmera 0 do SO (CR-07)
+        for p in [*range(8765, 8780), 0]:
             try:
                 self._server = BrowserAuthServer(port=p)
-                port = p
+                self._bound_port = int(self._server.server_port)
                 break
             except OSError:
                 continue
 
         if not self._server:
-            self.lbl_status.setText("⚠️ Não foi possível iniciar o servidor local de login.")
+            self._set_status(
+                "⚠️ Porta local indisponível. Use 'Cookie Manual' abaixo.",
+                "status_error",
+            )
+            self.manual_panel.setVisible(True)
             return
 
+        addr_str = f"127.0.0.1:{self._bound_port}"
+        self._set_active_step(3, port_info=addr_str)
+        self._set_status(
+            f"⏳ Servidor local ativo em {addr_str} — aguardando navegador...",
+            "status_warn",
+        )
+
         self._server.signals.login_completed.connect(self._on_success)
-        self._server_thread = threading.Thread(target=self._server.serve_forever, daemon=True)
+        self._server_thread = threading.Thread(
+            target=self._server.serve_forever, daemon=True
+        )
         self._server_thread.start()
 
         self._open_browser()
 
+    def _apply_manual_cookie_fallback(self) -> None:
+        raw = self.manual_cookie_input.text().strip()
+        if not raw:
+            return
+        cookie_dict: Dict[str, str] = {}
+        if "=" in raw:
+            for part in raw.split(";"):
+                if "=" in part:
+                    k, v = part.strip().split("=", 1)
+                    cookie_dict[k.strip()] = v.strip()
+        else:
+            cookie_dict["token_v2"] = raw
+
+        user = verify_reddit_token(cookie_dict.get("token_v2"))
+        if user or "reddit_session" in cookie_dict:
+            SESSION_FILE.parent.mkdir(parents=True, exist_ok=True)
+            SESSION_FILE.write_text(
+                json.dumps(cookie_dict, indent=2), encoding="utf-8"
+            )
+            self._on_success(cookie_dict)
+        else:
+            self._set_status(
+                "⚠️ Token ou cookie inválido. Verifique e tente novamente.",
+                "status_error",
+            )
+
     def _open_browser(self) -> None:
-        if self._server:
-            port = self._server.server_port
-            webbrowser.open(f"http://127.0.0.1:{port}/login")
+        if self._server and self._bound_port > 0:
+            webbrowser.open(f"http://127.0.0.1:{self._bound_port}/login")
         else:
             webbrowser.open("https://www.reddit.com/login")
 
     def _on_success(self, data: dict) -> None:
-        self.lbl_status.setText("✓ Conectado com sucesso!")
-        self.lbl_status.setStyleSheet("color: #46D160; font-size: 13px; font-weight: 700;")
+        if not isValid(self):
+            return
+        addr_str = f"127.0.0.1:{self._bound_port}" if self._bound_port else ""
+        self._set_active_step(5, port_info=addr_str)
+        self._set_status("✓ Conectado com sucesso!", "status_ok")
         self.progress.setVisible(False)
         self.login_completed.emit(data)
         QTimer.singleShot(600, self.accept)
