@@ -14,12 +14,15 @@ import threading
 import time
 from typing import Any, Dict, List, Optional, Tuple
 from urllib.parse import quote
+import json
+from pathlib import Path
 import xml.etree.ElementTree as ET
 import requests
 
 
 USER_AGENT = "linux:br.janlucas.redditdesktop:v1.1.0 (by /u/janlucas)"
 SUBREDDIT_NAME_RE = re.compile(r"^[A-Za-z0-9_]{2,21}$")
+SESSION_FILE = Path.home() / ".config" / "reddit-linux-app" / "session.json"
 
 
 def is_valid_subreddit_name(name: str) -> bool:
@@ -199,6 +202,88 @@ class RedditClient:
         self._lock = threading.Lock()
         self._sub_cache: Dict[str, SubredditInfo] = {}
         self._image_cache: OrderedDict[str, bytes] = OrderedDict()
+        self._logged_in_user: Optional[Dict[str, Any]] = None
+
+        self._load_saved_session()
+
+    def _load_saved_session(self) -> None:
+        try:
+            if SESSION_FILE.exists():
+                saved = json.loads(SESSION_FILE.read_text(encoding="utf-8"))
+                if isinstance(saved, dict):
+                    self.apply_saved_session(saved)
+        except Exception:
+            pass
+
+    def apply_saved_session(self, cookies: Dict[str, str]) -> None:
+        """Aplica os cookies capturados na tela de login oficial."""
+        with self._lock:
+            self._session.cookies.update(cookies)
+            if "token_v2" in cookies:
+                self._token_v2 = cookies["token_v2"]
+                self._token_expiry = time.time() + 86400 * 30  # Sessão de longa duração
+        self.fetch_current_user(force=True)
+
+    def fetch_current_user(self, force: bool = False) -> Optional[Dict[str, Any]]:
+        """Verifica se há um usuário autenticado retornando dados de perfil."""
+        if not force and self._logged_in_user is not None:
+            return self._logged_in_user
+
+        try:
+            resp = self._oauth_get("/api/v1/me")
+            if resp.status_code == 200:
+                data = resp.json()
+                if data and isinstance(data, dict) and data.get("name"):
+                    info = {
+                        "username": str(data["name"]),
+                        "karma": int(data.get("total_karma", 0) or 0),
+                        "comment_karma": int(data.get("comment_karma", 0) or 0),
+                        "link_karma": int(data.get("link_karma", 0) or 0),
+                        "icon": str(data.get("icon_img") or data.get("snoovatar_img") or ""),
+                    }
+                    self._logged_in_user = info
+                    return info
+        except Exception:
+            pass
+
+        self._logged_in_user = None
+        return None
+
+    def vote(self, item_id: str, direction: int) -> bool:
+        """
+        Vota em um post ou comentário (dir: 1 = upvote, 0 = neutral, -1 = downvote).
+        Retorna True se o voto foi aceito pelo Reddit.
+        """
+        token = self._ensure_session()
+        fullname = item_id if (item_id.startswith("t3_") or item_id.startswith("t1_")) else f"t3_{item_id}"
+        headers = {
+            "User-Agent": USER_AGENT,
+            "Authorization": f"Bearer {token}" if token else "",
+        }
+        try:
+            resp = self._session.post(
+                "https://oauth.reddit.com/api/vote",
+                headers=headers,
+                data={"id": fullname, "dir": direction},
+                timeout=10,
+            )
+            return resp.status_code == 200
+        except Exception:
+            return False
+
+    def logout(self) -> None:
+        """Encerra a sessão ativa e redefine para modo anônimo."""
+        with self._lock:
+            self._logged_in_user = None
+            self._token_v2 = None
+            self._token_expiry = 0
+            self._session.cookies.clear()
+            try:
+                if SESSION_FILE.exists():
+                    SESSION_FILE.unlink()
+            except Exception:
+                pass
+        self._ensure_session(force=True)
 
     def _ensure_session(self, force: bool = False) -> Optional[str]:
         with self._lock:
@@ -256,7 +341,12 @@ class RedditClient:
         if sort in ("top", "controversial"):
             params["t"] = time_filter
 
-        resp = self._oauth_get(f"/r/{encoded_sub}/{encoded_sort}", params=params)
+        if clean_sub == "home":
+            path = f"/{encoded_sort}" if encoded_sort != "hot" else "/"
+            resp = self._oauth_get(path, params=params)
+        else:
+            resp = self._oauth_get(f"/r/{encoded_sub}/{encoded_sort}", params=params)
+
         if resp.status_code != 200:
             raise RuntimeError(
                 f"Não foi possível carregar r/{clean_sub} (HTTP {resp.status_code})"
@@ -418,7 +508,14 @@ class RedditClient:
         """Busca metadados sobre um subreddit (título, descrição, membros, ícone)."""
         clean_sub = subreddit.strip().lstrip("/").removeprefix("r/").strip("/")
         key = clean_sub.lower()
-        if key in ("popular", "all"):
+        if key in ("popular", "all", "home"):
+            if key == "home":
+                return SubredditInfo(
+                    name="home",
+                    display_name_prefixed="Início",
+                    title="Seu Feed Personalizado",
+                    public_description="Postagens das comunidades em que você está inscrito.",
+                )
             if key == "popular":
                 return SubredditInfo(
                     name="popular",

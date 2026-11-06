@@ -306,6 +306,7 @@ class PostCardWidget(QFrame):
     open_subreddit_requested = Signal(str)  # nome do subreddit
     translate_post_requested = Signal(object, object)  # PostItem, PostCardWidget
     toggle_save_requested = Signal(object)  # PostItem
+    vote_requested = Signal(object, int)  # PostItem, direction (1, -1, 0)
 
     def __init__(
         self,
@@ -466,14 +467,33 @@ class PostCardWidget(QFrame):
         actions_row = QHBoxLayout()
         actions_row.setSpacing(8)
 
-        score_btn = QPushButton(f"⬆  {post.formatted_score}  ⬇")
-        score_btn.setProperty("class", "PillButton")
-        score_btn.setCursor(QCursor(Qt.CursorShape.PointingHandCursor))
-        score_btn.setToolTip(
-            f"Pontuação: {post.score:,} ({int(post.upvote_ratio * 100)}% positivo)"
-        )
-        score_btn.clicked.connect(lambda: self.open_post_requested.emit(self.post))
-        actions_row.addWidget(score_btn)
+        # Pílula interativa de Voto
+        self._vote_state: int = 0
+        self._base_score: int = post.score
+
+        vote_pill = QFrame()
+        vote_pill.setProperty("class", "PillButton")
+        vp_layout = QHBoxLayout(vote_pill)
+        vp_layout.setContentsMargins(6, 0, 6, 0)
+        vp_layout.setSpacing(6)
+
+        self.btn_upvote = QPushButton("▲")
+        self.btn_upvote.setCursor(QCursor(Qt.CursorShape.PointingHandCursor))
+        self.btn_upvote.setStyleSheet("background: transparent; border: none; font-weight: 800; font-size: 13px; padding: 2px;")
+        self.btn_upvote.clicked.connect(lambda: self._on_vote_clicked(1))
+        vp_layout.addWidget(self.btn_upvote)
+
+        self.lbl_score = QLabel(post.formatted_score)
+        self.lbl_score.setStyleSheet("font-weight: 700; font-size: 12px;")
+        vp_layout.addWidget(self.lbl_score)
+
+        self.btn_downvote = QPushButton("▼")
+        self.btn_downvote.setCursor(QCursor(Qt.CursorShape.PointingHandCursor))
+        self.btn_downvote.setStyleSheet("background: transparent; border: none; font-weight: 800; font-size: 13px; padding: 2px;")
+        self.btn_downvote.clicked.connect(lambda: self._on_vote_clicked(-1))
+        vp_layout.addWidget(self.btn_downvote)
+
+        actions_row.addWidget(vote_pill)
 
         comm_btn = QPushButton(f"💬  {post.formatted_comments}")
         comm_btn.setProperty("class", "PillButton")
@@ -548,6 +568,34 @@ class PostCardWidget(QFrame):
             self.save_btn.setText("★ Salvo")
         else:
             self.save_btn.setText("🔖 Salvar")
+
+    def _on_vote_clicked(self, direction: int) -> None:
+        if self._vote_state == direction:
+            self._vote_state = 0
+        else:
+            self._vote_state = direction
+        self._sync_vote_ui()
+        self.vote_requested.emit(self.post, self._vote_state)
+
+    def _sync_vote_ui(self) -> None:
+        if not isValid(self) or not isValid(self.btn_upvote) or not isValid(self.btn_downvote):
+            return
+        adj_score = self._base_score + self._vote_state
+        self.post.score = adj_score
+        self.lbl_score.setText(self.post.formatted_score)
+
+        if self._vote_state == 1:
+            self.btn_upvote.setStyleSheet("background: transparent; border: none; font-weight: 800; font-size: 13px; color: #FF4500;")
+            self.btn_downvote.setStyleSheet("background: transparent; border: none; font-weight: 800; font-size: 13px; color: #8BA2AD;")
+            self.lbl_score.setStyleSheet("font-weight: 800; font-size: 12px; color: #FF4500;")
+        elif self._vote_state == -1:
+            self.btn_upvote.setStyleSheet("background: transparent; border: none; font-weight: 800; font-size: 13px; color: #8BA2AD;")
+            self.btn_downvote.setStyleSheet("background: transparent; border: none; font-weight: 800; font-size: 13px; color: #7193FF;")
+            self.lbl_score.setStyleSheet("font-weight: 800; font-size: 12px; color: #7193FF;")
+        else:
+            self.btn_upvote.setStyleSheet("background: transparent; border: none; font-weight: 800; font-size: 13px; color: #8BA2AD;")
+            self.btn_downvote.setStyleSheet("background: transparent; border: none; font-weight: 800; font-size: 13px; color: #8BA2AD;")
+            self.lbl_score.setStyleSheet("font-weight: 700; font-size: 12px;")
 
     def _on_save_clicked(self) -> None:
         self.is_saved = not self.is_saved

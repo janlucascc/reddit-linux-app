@@ -32,6 +32,7 @@ from PySide6.QtWidgets import (
 )
 from shiboken6 import isValid
 
+from login_dialog import RedditLoginDialog
 from reddit_api import (
     CommentItem,
     PostItem,
@@ -151,13 +152,19 @@ class RedditLinuxWindow(QMainWindow):
         self.current_sub_info: Optional[SubredditInfo] = None
         self._gallery_index: int = 0
         self._detail_raw_image: Optional[bytes] = None
+        self.current_user: Optional[Dict[str, Any]] = self.client.fetch_current_user()
 
         self._build_ui()
+        self._update_user_ui()
         self._apply_theme()
         self._setup_shortcuts()
 
-        # Carrega feed inicial
-        self.load_subreddit("popular", sort="hot")
+        # Verifica sessão em segundo plano
+        self._check_login_status_on_startup()
+
+        # Carrega feed inicial (Início se logado, ou Popular)
+        initial_sub = "home" if self.current_user else "popular"
+        self.load_subreddit(initial_sub, sort="hot")
 
     def _load_config(self) -> Dict[str, Any]:
         try:
@@ -338,6 +345,20 @@ class RedditLinuxWindow(QMainWindow):
         self._sync_theme_btn()
         header_layout.addWidget(self.btn_theme)
 
+        # Área de Usuário / Login
+        self.user_area = QWidget()
+        self.user_area_layout = QHBoxLayout(self.user_area)
+        self.user_area_layout.setContentsMargins(0, 0, 0, 0)
+        self.user_area_layout.setSpacing(8)
+
+        self.btn_login = QPushButton("👤 Entrar")
+        self.btn_login.setProperty("class", "PillButtonAccent")
+        self.btn_login.setCursor(QCursor(Qt.CursorShape.PointingHandCursor))
+        self.btn_login.clicked.connect(self.open_login_dialog)
+        self.user_area_layout.addWidget(self.btn_login)
+
+        header_layout.addWidget(self.user_area)
+
         root_layout.addWidget(header)
 
         # 2. Corpo Principal: Barra Esquerda + Área Central + Barra Direita
@@ -365,23 +386,14 @@ class RedditLinuxWindow(QMainWindow):
         lbl_feeds.setObjectName("SidebarSectionTitle")
         self.sidebar_layout.addWidget(lbl_feeds)
 
+        self.feeds_container = QWidget()
+        self.feeds_layout = QVBoxLayout(self.feeds_container)
+        self.feeds_layout.setContentsMargins(0, 0, 0, 0)
+        self.feeds_layout.setSpacing(2)
+        self.sidebar_layout.addWidget(self.feeds_container)
+
         self.nav_buttons: Dict[str, QPushButton] = {}
-        for sub_id, title in [
-            ("popular", "🔥  Popular"),
-            ("all", "🌍  Tudo (r/all)"),
-            ("__saved__", "🔖  Posts Salvos"),
-        ]:
-            btn = QPushButton(title)
-            btn.setProperty("class", "NavButton")
-            btn.setCursor(QCursor(Qt.CursorShape.PointingHandCursor))
-            if sub_id == "__saved__":
-                btn.clicked.connect(self.show_saved_posts)
-            else:
-                btn.clicked.connect(
-                    lambda checked=False, s=sub_id: self.load_subreddit(s)
-                )
-            self.sidebar_layout.addWidget(btn)
-            self.nav_buttons[sub_id] = btn
+        self._rebuild_sidebar_feeds()
 
         lbl_favs = QLabel("COMUNIDADES")
         lbl_favs.setObjectName("SidebarSectionTitle")
@@ -828,6 +840,147 @@ class RedditLinuxWindow(QMainWindow):
                 self.translate_current_view()
 
     # -------------------------------------------------------------------------
+    # Sessão de Usuário e Autenticação
+    # -------------------------------------------------------------------------
+    def _rebuild_sidebar_feeds(self) -> None:
+        if not hasattr(self, "feeds_layout"):
+            return
+        while self.feeds_layout.count():
+            item = self.feeds_layout.takeAt(0)
+            w = item.widget()
+            if w is not None:
+                self.feeds_layout.removeWidget(w)
+                w.setParent(None)
+                w.deleteLater()
+
+        feed_items = []
+        if self.current_user:
+            feed_items.append(("home", "🏠  Início (Meu Feed)"))
+        feed_items.extend([
+            ("popular", "🔥  Popular"),
+            ("all", "🌍  Tudo (r/all)"),
+            ("__saved__", "🔖  Posts Salvos"),
+        ])
+
+        self.nav_buttons = {}
+        for sub_id, title in feed_items:
+            btn = QPushButton(title)
+            btn.setProperty("class", "NavButton")
+            btn.setCursor(QCursor(Qt.CursorShape.PointingHandCursor))
+            if sub_id == "__saved__":
+                btn.clicked.connect(self.show_saved_posts)
+            else:
+                btn.clicked.connect(
+                    lambda checked=False, s=sub_id: self.load_subreddit(s)
+                )
+            self.feeds_layout.addWidget(btn)
+            self.nav_buttons[sub_id] = btn
+
+        for key, btn in self.nav_buttons.items():
+            active = False
+            if key == "__saved__" and self.is_viewing_saved:
+                active = True
+            elif (
+                not self.is_viewing_saved
+                and not self.is_searching
+                and self.current_subreddit.lower() == key.lower()
+            ):
+                active = True
+            btn.setProperty("active", "true" if active else "false")
+            btn.style().unpolish(btn)
+            btn.style().polish(btn)
+
+    def _update_user_ui(self) -> None:
+        if not hasattr(self, "user_area_layout"):
+            return
+        while self.user_area_layout.count():
+            item = self.user_area_layout.takeAt(0)
+            w = item.widget()
+            if w is not None:
+                self.user_area_layout.removeWidget(w)
+                w.setParent(None)
+                w.deleteLater()
+
+        if self.current_user:
+            uname = self.current_user.get("username", "Usuário")
+            karma = self.current_user.get("karma", 0)
+
+            user_pill = QFrame()
+            user_pill.setProperty("class", "PillButton")
+            up_layout = QHBoxLayout(user_pill)
+            up_layout.setContentsMargins(8, 2, 8, 2)
+            up_layout.setSpacing(6)
+
+            lbl_name = QLabel(f"👤 u/{uname}")
+            lbl_name.setStyleSheet("font-weight: 700; font-size: 12px;")
+            up_layout.addWidget(lbl_name)
+
+            lbl_karma = QLabel(f"• {format_count(karma)} karma")
+            lbl_karma.setStyleSheet("color: #FF4500; font-weight: 700; font-size: 11px;")
+            up_layout.addWidget(lbl_karma)
+
+            self.user_area_layout.addWidget(user_pill)
+
+            btn_logout = QPushButton("Sair")
+            btn_logout.setProperty("class", "PillButton")
+            btn_logout.setCursor(QCursor(Qt.CursorShape.PointingHandCursor))
+            btn_logout.setToolTip("Desconectar conta do Reddit")
+            btn_logout.clicked.connect(self._on_logout_clicked)
+            self.user_area_layout.addWidget(btn_logout)
+        else:
+            self.btn_login = QPushButton("👤 Entrar")
+            self.btn_login.setProperty("class", "PillButtonAccent")
+            self.btn_login.setCursor(QCursor(Qt.CursorShape.PointingHandCursor))
+            self.btn_login.clicked.connect(self.open_login_dialog)
+            self.user_area_layout.addWidget(self.btn_login)
+
+    def _check_login_status_on_startup(self) -> None:
+        def _task() -> Optional[Dict[str, Any]]:
+            return self.client.fetch_current_user()
+
+        def _done(user: Optional[Dict[str, Any]]) -> None:
+            if not self._is_closing and isValid(self):
+                self.current_user = user
+                self._update_user_ui()
+                self._rebuild_sidebar_feeds()
+
+        self._run_async(_task, _done)
+
+    def open_login_dialog(self) -> None:
+        dialog = RedditLoginDialog(self)
+        dialog.login_completed.connect(self._on_login_completed)
+        dialog.exec()
+
+    def _on_login_completed(self, cookies: Dict[str, str]) -> None:
+        self.client.apply_saved_session(cookies)
+        self.current_user = self.client.fetch_current_user(force=True)
+        self._update_user_ui()
+        self._rebuild_sidebar_feeds()
+        self.load_subreddit("home", sort="hot")
+
+    def _on_logout_clicked(self) -> None:
+        self.client.logout()
+        self.current_user = None
+        self._update_user_ui()
+        self._rebuild_sidebar_feeds()
+        if self.current_subreddit.lower() == "home":
+            self.load_subreddit("popular", sort="hot")
+
+    def _on_card_vote_requested(self, post: PostItem, direction: int) -> None:
+        if not self.current_user:
+            self.open_login_dialog()
+            return
+
+        def _task() -> bool:
+            return self.client.vote(post.id, direction)
+
+        def _done(ok: bool) -> None:
+            if not ok and not self._is_closing and isValid(self):
+                self.lbl_status.setText("⚠️ Não foi possível registrar o voto.")
+
+        self._run_async(_task, _done)
+
+    # -------------------------------------------------------------------------
     # Favoritos e Barra Lateral (com validação e botão de remoção BUG-010)
     # -------------------------------------------------------------------------
     def _rebuild_favorites_sidebar(self) -> None:
@@ -915,7 +1068,7 @@ class RedditLinuxWindow(QMainWindow):
 
     def _toggle_current_subreddit_favorite(self) -> None:
         sub = self.current_subreddit
-        if sub.lower() in ("popular", "all") or not is_valid_subreddit_name(sub):
+        if sub.lower() in ("popular", "all", "home") or not is_valid_subreddit_name(sub):
             return
         existing = [f for f in self.favorites if f.lower() == sub.lower()]
         if existing:
@@ -930,7 +1083,7 @@ class RedditLinuxWindow(QMainWindow):
     def _sync_fav_button(self) -> None:
         sub = self.current_subreddit
         if (
-            sub.lower() in ("popular", "all")
+            sub.lower() in ("popular", "all", "home")
             or self.is_viewing_saved
             or self.is_searching
             or not is_valid_subreddit_name(sub)
@@ -973,8 +1126,12 @@ class RedditLinuxWindow(QMainWindow):
             self.next_after = None
             self.stack.setCurrentWidget(self.feed_page)
             self._clear_feed_cards()
-            self.lbl_feed_title.setText(f"r/{clean_sub}")
-            self.lbl_feed_subtitle.setText(f"Carregando postagens de r/{clean_sub}...")
+            if clean_sub == "home":
+                self.lbl_feed_title.setText("Início")
+                self.lbl_feed_subtitle.setText("Postagens das comunidades em que você está inscrito")
+            else:
+                self.lbl_feed_title.setText(f"r/{clean_sub}")
+                self.lbl_feed_subtitle.setText(f"Carregando postagens de r/{clean_sub}...")
             self._replace_feed_avatar(clean_sub)
 
         self._sync_sort_buttons()
@@ -1312,6 +1469,7 @@ class RedditLinuxWindow(QMainWindow):
             card.open_subreddit_requested.connect(self.load_subreddit)
             card.translate_post_requested.connect(self.translate_single_post_card)
             card.toggle_save_requested.connect(self._toggle_save_post)
+            card.vote_requested.connect(self._on_card_vote_requested)
 
             self.feed_cards.append(card)
             self.feed_list_layout.insertWidget(insert_pos, card)

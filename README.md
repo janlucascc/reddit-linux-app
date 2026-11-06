@@ -22,8 +22,9 @@
 
 O **Reddit Linux Desktop** é uma aplicação desktop nativa construída em **Python** e **PySide6 (Qt6)** projetada para oferecer a melhor experiência do Reddit no ecossistema Linux:
 
-* 🚫 **Zero Electron / Zero WebViews**: Consumo mínimo de memória RAM e inicialização instantânea.
+* 🚫 **Zero Electron / Zero WebViews no Feed**: Consumo mínimo de memória RAM e inicialização instantânea.
 * ⚡ **Pronto para Usar**: Funciona diretamente, sem exigir chaves de API pagas ou cadastros de desenvolvedor.
+* 👤 **Login Familiar e Seguro**: Conecte sua conta do Reddit com usuário/senha ou Google de forma prática e oficial, sem configurações complexas de API.
 * 🎨 **Visual Shreddit Fiel**: Inspirado na interface moderna do Reddit Web, com suporte completo a **Modo Escuro nativo** e **Modo Claro**.
 * 🌐 **Tradução Multilíngue**: Traduza postagens individuais, comentários específicos ou a página inteira em lote com 1 clique (para Português, Inglês, Espanhol, Francês, Alemão, Italiano ou Japonês).
 
@@ -32,6 +33,8 @@ O **Reddit Linux Desktop** é uma aplicação desktop nativa construída em **Py
 ## 🚀 Recursos Principais
 
 ### 📰 Navegação e Feeds
+* **Autenticação Simples**: Clique em `👤 Entrar` para se autenticar pela tela oficial do Reddit. Ao entrar, o seu feed personalizado (`🏠 Início`) e karma ficam imediatamente disponíveis.
+* **Votação Interativa**: Vote com `▲` (Upvote) ou `▼` (Downvote) diretamente nos cards do feed com atualização visual de pontuação em tempo real.
 * **Feeds Principais**: Acesso rápido a `r/popular`, `r/all` e comunidades locais.
 * **Ordenação Completa**: Alterne entre **Em Alta (Hot)**, **Novos (New)**, **Topo (Top)** (com filtros de período: dia, semana, mês, ano ou sempre) e **Subindo (Rising)**.
 * **Busca Global**: Pesquisa inteligente de postagens e comunidades com suporte a paginação contínua.
@@ -112,6 +115,7 @@ chmod +x main.py
 ```text
 reddit-linux-app/
 ├── main.py               # Janela principal, ciclo de vida e gerenciamento multithread
+├── login_dialog.py       # Diálogo modal seguro de login oficial via WebEngine
 ├── reddit_api.py         # Cliente de API e feeds com paginação e backoff exponencial
 ├── translator.py         # Serviço de tradução assíncrono com cache LRU
 ├── widgets.py            # Componentes gráficos de posts, comentários, avatares e diálogos
