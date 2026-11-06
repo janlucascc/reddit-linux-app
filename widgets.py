@@ -33,6 +33,7 @@ from PySide6.QtGui import (
     QCursor,
     QFont,
     QGuiApplication,
+    QIcon,
     QImage,
     QLinearGradient,
     QPainter,
@@ -250,6 +251,374 @@ class UiSkillsButton(QPushButton):
             self._anim.setEndValue(1.0)
             self._anim.start()
         super().mouseReleaseEvent(event)
+
+
+def create_reddit_vector_icon(
+    icon_type: str,
+    color_hex: Optional[str] = None,
+    size: int = 20,
+) -> QIcon:
+    """
+    Gera um QIcon vetorial minimalista com traço nítido (High-DPI 2x)
+    seguindo a identidade visual oficial do Reddit (CR-03).
+    """
+    scale = 2
+    px_size = size * scale
+    pixmap = QPixmap(px_size, px_size)
+    pixmap.fill(Qt.GlobalColor.transparent)
+    pixmap.setDevicePixelRatio(scale)
+
+    painter = QPainter(pixmap)
+    painter.setRenderHint(QPainter.RenderHint.Antialiasing, True)
+    w = float(size)
+    h = float(size)
+
+    if not color_hex:
+        color_hex = ThemeManager.instance().tokens.text_primary
+    color = QColor(color_hex)
+    pen = QPen(
+        color,
+        max(1.5, w * 0.08),
+        Qt.PenStyle.SolidLine,
+        Qt.PenCapStyle.RoundCap,
+        Qt.PenJoinStyle.RoundJoin,
+    )
+    painter.setPen(pen)
+    painter.setBrush(Qt.BrushStyle.NoBrush)
+
+    it = icon_type.lower()
+    if it == "home":
+        house = QPainterPath()
+        house.moveTo(w * 0.16, h * 0.46)
+        house.lineTo(w * 0.50, h * 0.16)
+        house.lineTo(w * 0.84, h * 0.46)
+        house.lineTo(w * 0.76, h * 0.46)
+        house.lineTo(w * 0.76, h * 0.84)
+        house.lineTo(w * 0.58, h * 0.84)
+        house.lineTo(w * 0.58, h * 0.60)
+        house.lineTo(w * 0.42, h * 0.60)
+        house.lineTo(w * 0.42, h * 0.84)
+        house.lineTo(w * 0.24, h * 0.84)
+        house.lineTo(w * 0.24, h * 0.46)
+        house.closeSubpath()
+        painter.drawPath(house)
+    elif it == "popular":
+        painter.drawEllipse(QRectF(w * 0.12, h * 0.12, w * 0.76, h * 0.76))
+        arr = QPainterPath()
+        arr.moveTo(w * 0.34, h * 0.66)
+        arr.lineTo(w * 0.64, h * 0.36)
+        arr.moveTo(w * 0.44, h * 0.36)
+        arr.lineTo(w * 0.64, h * 0.36)
+        arr.lineTo(w * 0.64, h * 0.56)
+        painter.drawPath(arr)
+    elif it == "news":
+        painter.drawRoundedRect(
+            QRectF(w * 0.16, h * 0.18, w * 0.68, h * 0.64), w * 0.10, h * 0.10
+        )
+        painter.drawLine(int(w * 0.26), int(h * 0.34), int(w * 0.48), int(h * 0.34))
+        painter.drawLine(int(w * 0.26), int(h * 0.48), int(w * 0.48), int(h * 0.48))
+        painter.drawLine(int(w * 0.56), int(h * 0.34), int(w * 0.74), int(h * 0.34))
+        painter.drawLine(int(w * 0.56), int(h * 0.48), int(w * 0.74), int(h * 0.48))
+        painter.drawLine(int(w * 0.26), int(h * 0.64), int(w * 0.74), int(h * 0.64))
+    elif it == "explore":
+        r = max(2.0, w * 0.13)
+        painter.drawEllipse(QRectF(w * 0.50 - r, h * 0.26 - r, r * 2, r * 2))
+        painter.drawEllipse(QRectF(w * 0.28 - r, h * 0.68 - r, r * 2, r * 2))
+        painter.drawEllipse(QRectF(w * 0.72 - r, h * 0.68 - r, r * 2, r * 2))
+        painter.drawLine(int(w * 0.44), int(h * 0.38), int(w * 0.34), int(h * 0.56))
+        painter.drawLine(int(w * 0.56), int(h * 0.38), int(w * 0.66), int(h * 0.56))
+    elif it in ("plus", "create_comm"):
+        painter.drawLine(int(w * 0.50), int(h * 0.20), int(w * 0.50), int(h * 0.80))
+        painter.drawLine(int(w * 0.20), int(h * 0.50), int(w * 0.80), int(h * 0.50))
+    elif it == "gamepad":
+        gp = QPainterPath()
+        gp.addRoundedRect(
+            QRectF(w * 0.14, h * 0.26, w * 0.72, h * 0.48), w * 0.22, h * 0.22
+        )
+        painter.drawPath(gp)
+        painter.drawLine(int(w * 0.32), int(h * 0.42), int(w * 0.32), int(h * 0.58))
+        painter.drawLine(int(w * 0.24), int(h * 0.50), int(w * 0.40), int(h * 0.50))
+        painter.setPen(Qt.PenStyle.NoPen)
+        painter.setBrush(color)
+        r = max(1.0, w * 0.04)
+        painter.drawEllipse(QRectF(w * 0.66 - r, h * 0.44 - r, r * 2, r * 2))
+        painter.drawEllipse(QRectF(w * 0.74 - r, h * 0.54 - r, r * 2, r * 2))
+    elif it == "puzzle":
+        puz = QPainterPath()
+        puz.moveTo(w * 0.20, h * 0.20)
+        puz.lineTo(w * 0.42, h * 0.20)
+        puz.arcTo(QRectF(w * 0.38, h * 0.08, w * 0.24, h * 0.24), 180, -180)
+        puz.lineTo(w * 0.80, h * 0.20)
+        puz.lineTo(w * 0.80, h * 0.80)
+        puz.lineTo(w * 0.20, h * 0.80)
+        puz.closeSubpath()
+        painter.drawPath(puz)
+    elif it == "orbit":
+        painter.drawEllipse(QRectF(w * 0.32, h * 0.32, w * 0.36, h * 0.36))
+        ring = QPainterPath()
+        ring.arcMoveTo(QRectF(w * 0.14, h * 0.36, w * 0.72, h * 0.28), 30)
+        ring.arcTo(QRectF(w * 0.14, h * 0.36, w * 0.72, h * 0.28), 30, 200)
+        painter.drawPath(ring)
+    elif it in ("sparkle", "glyph"):
+        sp = QPainterPath()
+        sp.moveTo(w * 0.50, h * 0.16)
+        sp.quadTo(w * 0.50, h * 0.50, w * 0.84, h * 0.50)
+        sp.quadTo(w * 0.50, h * 0.50, w * 0.50, h * 0.84)
+        sp.quadTo(w * 0.50, h * 0.50, w * 0.16, h * 0.50)
+        sp.quadTo(w * 0.50, h * 0.50, w * 0.50, h * 0.16)
+        painter.drawPath(sp)
+    elif it == "bookmark":
+        bm = QPainterPath()
+        bm.moveTo(w * 0.26, h * 0.16)
+        bm.lineTo(w * 0.74, h * 0.16)
+        bm.lineTo(w * 0.74, h * 0.84)
+        bm.lineTo(w * 0.50, h * 0.64)
+        bm.lineTo(w * 0.26, h * 0.84)
+        bm.closeSubpath()
+        painter.drawPath(bm)
+    elif it == "chat":
+        bubble = QPainterPath()
+        bubble.addRoundedRect(
+            QRectF(w * 0.12, h * 0.16, w * 0.76, h * 0.58), w * 0.28, h * 0.28
+        )
+        bubble.moveTo(w * 0.25, h * 0.72)
+        bubble.lineTo(w * 0.14, h * 0.88)
+        bubble.lineTo(w * 0.38, h * 0.74)
+        painter.drawPath(bubble)
+        painter.setPen(Qt.PenStyle.NoPen)
+        painter.setBrush(color)
+        r = max(1.0, w * 0.04)
+        painter.drawEllipse(QRectF(w * 0.35 - r, h * 0.45 - r, r * 2, r * 2))
+        painter.drawEllipse(QRectF(w * 0.50 - r, h * 0.45 - r, r * 2, r * 2))
+        painter.drawEllipse(QRectF(w * 0.65 - r, h * 0.45 - r, r * 2, r * 2))
+    elif it == "create":
+        painter.drawRoundedRect(
+            QRectF(w * 0.14, h * 0.14, w * 0.72, h * 0.72), w * 0.20, h * 0.20
+        )
+        painter.drawLine(int(w * 0.50), int(h * 0.30), int(w * 0.50), int(h * 0.70))
+        painter.drawLine(int(w * 0.30), int(h * 0.50), int(w * 0.70), int(h * 0.50))
+    elif it == "ads":
+        painter.drawRoundedRect(
+            QRectF(w * 0.12, h * 0.20, w * 0.62, h * 0.54), w * 0.14, h * 0.14
+        )
+        painter.drawRoundedRect(
+            QRectF(w * 0.26, h * 0.32, w * 0.62, h * 0.54), w * 0.14, h * 0.14
+        )
+        font = QFont("sans-serif", int(h * 0.24), QFont.Weight.Bold)
+        painter.setFont(font)
+        painter.drawText(
+            QRectF(w * 0.28, h * 0.34, w * 0.58, h * 0.50),
+            Qt.AlignmentFlag.AlignCenter,
+            "AD",
+        )
+    elif it == "translate":
+        f1 = QFont("sans-serif", int(h * 0.36), QFont.Weight.Bold)
+        painter.setFont(f1)
+        painter.drawText(
+            QRectF(w * 0.06, h * 0.10, w * 0.50, h * 0.54),
+            Qt.AlignmentFlag.AlignCenter,
+            "文",
+        )
+        f2 = QFont("sans-serif", int(h * 0.34), QFont.Weight.Bold)
+        painter.setFont(f2)
+        painter.drawText(
+            QRectF(w * 0.44, h * 0.38, w * 0.50, h * 0.54),
+            Qt.AlignmentFlag.AlignCenter,
+            "A",
+        )
+    elif it == "bell":
+        sino = QPainterPath()
+        sino.moveTo(w * 0.50, h * 0.16)
+        sino.cubicTo(w * 0.36, h * 0.16, w * 0.24, h * 0.35, w * 0.24, h * 0.62)
+        sino.lineTo(w * 0.16, h * 0.75)
+        sino.lineTo(w * 0.84, h * 0.75)
+        sino.lineTo(w * 0.76, h * 0.62)
+        sino.cubicTo(w * 0.76, h * 0.35, w * 0.64, h * 0.16, w * 0.50, h * 0.16)
+        painter.drawPath(sino)
+        clapper = QPainterPath()
+        clapper.arcMoveTo(QRectF(w * 0.41, h * 0.75, w * 0.18, h * 0.14), 180)
+        clapper.arcTo(QRectF(w * 0.41, h * 0.75, w * 0.18, h * 0.14), 180, 180)
+        painter.drawPath(clapper)
+    else:
+        painter.drawEllipse(QRectF(w * 0.20, h * 0.20, w * 0.60, h * 0.60))
+
+    painter.end()
+    return QIcon(pixmap)
+
+
+class RedditVectorIconWidget(QWidget):
+    """
+    Widget vetorial para ícones da interface do Reddit com traço limpo e minimalista (CR-03).
+    Suporta tipos: 'translate', 'ads', 'chat', 'create', 'bell', 'home', 'popular', 'news', 'explore', 'create_comm', 'game', 'feed'.
+    """
+
+    clicked = Signal()
+
+    def __init__(
+        self,
+        icon_type: str,
+        size: int = 20,
+        parent: Optional[QWidget] = None,
+    ) -> None:
+        super().__init__(parent)
+        self.icon_type = icon_type
+        self.setFixedSize(size, size)
+        ThemeManager.instance().theme_changed.connect(self._on_theme_changed)
+
+    def _on_theme_changed(self, _mode: str) -> None:
+        if isValid(self):
+            self.update()
+
+    def mousePressEvent(self, event) -> None:
+        if event.button() == Qt.MouseButton.LeftButton:
+            self.clicked.emit()
+            event.accept()
+            return
+        super().mousePressEvent(event)
+
+    def paintEvent(self, event) -> None:
+        tokens = ThemeManager.instance().tokens
+        painter = QPainter(self)
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing, True)
+        w = float(self.width())
+        h = float(self.height())
+        color = QColor(tokens.text_primary)
+        pen = QPen(color, max(1.5, w * 0.08), Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap, Qt.PenJoinStyle.RoundJoin)
+        painter.setPen(pen)
+        painter.setBrush(Qt.BrushStyle.NoBrush)
+
+        it = self.icon_type
+        if it == "chat":
+            # Balão de conversa limpo com 3 pontos (Imagem 5)
+            bubble = QPainterPath()
+            bubble.addRoundedRect(QRectF(w * 0.12, w * 0.16, w * 0.76, h * 0.58), w * 0.28, h * 0.28)
+            bubble.moveTo(w * 0.25, h * 0.72)
+            bubble.lineTo(w * 0.14, h * 0.88)
+            bubble.lineTo(w * 0.38, h * 0.74)
+            painter.drawPath(bubble)
+            painter.setPen(Qt.PenStyle.NoPen)
+            painter.setBrush(color)
+            r = max(1.0, w * 0.04)
+            painter.drawEllipse(QRectF(w * 0.35 - r, h * 0.45 - r, r * 2, r * 2))
+            painter.drawEllipse(QRectF(w * 0.50 - r, h * 0.45 - r, r * 2, r * 2))
+            painter.drawEllipse(QRectF(w * 0.65 - r, h * 0.45 - r, r * 2, r * 2))
+        elif it == "bell":
+            # Sino minimalista (Imagem 5)
+            sino = QPainterPath()
+            sino.moveTo(w * 0.50, h * 0.16)
+            sino.cubicTo(w * 0.36, h * 0.16, w * 0.24, h * 0.35, w * 0.24, h * 0.62)
+            sino.lineTo(w * 0.16, h * 0.75)
+            sino.lineTo(w * 0.84, h * 0.75)
+            sino.lineTo(w * 0.76, h * 0.62)
+            sino.cubicTo(w * 0.76, h * 0.35, w * 0.64, h * 0.16, w * 0.50, h * 0.16)
+            painter.drawPath(sino)
+            clapper = QPainterPath()
+            clapper.arcMoveTo(QRectF(w * 0.41, h * 0.75, w * 0.18, h * 0.14), 180)
+            clapper.arcTo(QRectF(w * 0.41, h * 0.75, w * 0.18, h * 0.14), 180, 180)
+            painter.drawPath(clapper)
+        elif it == "ads":
+            # Ícone de anúncio / cards sobrepostos com "AD" (Imagem 5)
+            painter.drawRoundedRect(QRectF(w * 0.14, h * 0.24, w * 0.60, h * 0.52), w * 0.12, h * 0.12)
+            painter.drawRoundedRect(QRectF(w * 0.26, h * 0.36, w * 0.60, h * 0.52), w * 0.12, h * 0.12)
+            font = QFont(self.font())
+            font.setPixelSize(int(h * 0.22))
+            font.setBold(True)
+            painter.setFont(font)
+            painter.drawText(QRectF(w * 0.28, h * 0.38, w * 0.56, h * 0.48), Qt.AlignmentFlag.AlignCenter, "AD")
+        elif it == "create":
+            # Quadrado com cantos arredondados e cruz '+' dentro (Imagem 5)
+            painter.drawRoundedRect(QRectF(w * 0.14, h * 0.14, w * 0.72, h * 0.72), w * 0.20, h * 0.20)
+            painter.drawLine(int(w * 0.50), int(h * 0.30), int(w * 0.50), int(h * 0.70))
+            painter.drawLine(int(w * 0.30), int(h * 0.50), int(w * 0.70), int(h * 0.50))
+        elif it == "home":
+            # Casa minimalista contorno fino (Imagem 3)
+            house = QPainterPath()
+            house.moveTo(w * 0.16, h * 0.46)
+            house.lineTo(w * 0.50, h * 0.16)
+            house.lineTo(w * 0.84, h * 0.46)
+            house.lineTo(w * 0.76, h * 0.46)
+            house.lineTo(w * 0.76, h * 0.84)
+            house.lineTo(w * 0.58, h * 0.84)
+            house.lineTo(w * 0.58, h * 0.60)
+            house.lineTo(w * 0.42, h * 0.60)
+            house.lineTo(w * 0.42, h * 0.84)
+            house.lineTo(w * 0.24, h * 0.84)
+            house.lineTo(w * 0.24, h * 0.46)
+            house.closeSubpath()
+            painter.drawPath(house)
+        elif it == "popular":
+            # Círculo com flecha na diagonal superior direita (Imagem 3)
+            painter.drawEllipse(QRectF(w * 0.12, h * 0.12, w * 0.76, h * 0.76))
+            arr = QPainterPath()
+            arr.moveTo(w * 0.34, h * 0.66)
+            arr.lineTo(w * 0.64, h * 0.36)
+            arr.moveTo(w * 0.44, h * 0.36)
+            arr.lineTo(w * 0.64, h * 0.36)
+            arr.lineTo(w * 0.64, h * 0.56)
+            painter.drawPath(arr)
+        elif it == "news":
+            # Jornal / feed de notícias (Imagem 3)
+            painter.drawRoundedRect(QRectF(w * 0.16, h * 0.18, w * 0.68, h * 0.64), w * 0.10, h * 0.10)
+            painter.drawLine(int(w * 0.26), int(h * 0.34), int(w * 0.48), int(h * 0.34))
+            painter.drawLine(int(w * 0.26), int(h * 0.48), int(w * 0.48), int(h * 0.48))
+            painter.drawLine(int(w * 0.56), int(h * 0.34), int(w * 0.74), int(h * 0.34))
+            painter.drawLine(int(w * 0.56), int(h * 0.48), int(w * 0.74), int(h * 0.48))
+            painter.drawLine(int(w * 0.26), int(h * 0.64), int(w * 0.74), int(h * 0.64))
+        elif it == "explore":
+            # Três círculos interligados estilo diagrama / comunidade (Imagem 3)
+            r = max(2.0, w * 0.13)
+            painter.drawEllipse(QRectF(w * 0.50 - r, h * 0.26 - r, r * 2, r * 2))
+            painter.drawEllipse(QRectF(w * 0.28 - r, h * 0.68 - r, r * 2, r * 2))
+            painter.drawEllipse(QRectF(w * 0.72 - r, h * 0.68 - r, r * 2, r * 2))
+            painter.drawLine(int(w * 0.44), int(h * 0.38), int(w * 0.34), int(h * 0.56))
+            painter.drawLine(int(w * 0.56), int(h * 0.38), int(w * 0.66), int(h * 0.56))
+        elif it == "plus":
+            # Cruz de adição '+' limpa
+            painter.drawLine(int(w * 0.50), int(h * 0.20), int(w * 0.50), int(h * 0.80))
+            painter.drawLine(int(w * 0.20), int(h * 0.50), int(w * 0.80), int(h * 0.50))
+        elif it == "gamepad":
+            # Controle de videogame minimalista (Imagem 3)
+            gp = QPainterPath()
+            gp.addRoundedRect(QRectF(w * 0.14, h * 0.26, w * 0.72, h * 0.48), w * 0.22, h * 0.22)
+            painter.drawPath(gp)
+            painter.drawLine(int(w * 0.32), int(h * 0.42), int(w * 0.32), int(h * 0.58))
+            painter.drawLine(int(w * 0.24), int(h * 0.50), int(w * 0.40), int(h * 0.50))
+            painter.setPen(Qt.PenStyle.NoPen)
+            painter.setBrush(color)
+            r = max(1.0, w * 0.04)
+            painter.drawEllipse(QRectF(w * 0.66 - r, h * 0.44 - r, r * 2, r * 2))
+            painter.drawEllipse(QRectF(w * 0.74 - r, h * 0.54 - r, r * 2, r * 2))
+        elif it == "puzzle":
+            # Peça de quebra-cabeça minimalista em contorno
+            puz = QPainterPath()
+            puz.moveTo(w * 0.20, h * 0.20)
+            puz.lineTo(w * 0.42, h * 0.20)
+            puz.arcTo(QRectF(w * 0.38, h * 0.08, w * 0.24, h * 0.24), 180, -180)
+            puz.lineTo(w * 0.80, h * 0.20)
+            puz.lineTo(w * 0.80, h * 0.80)
+            puz.lineTo(w * 0.20, h * 0.80)
+            puz.closeSubpath()
+            painter.drawPath(puz)
+        elif it == "orbit":
+            # Planeta com anel orbital minimalista
+            painter.drawEllipse(QRectF(w * 0.32, h * 0.32, w * 0.36, h * 0.36))
+            ring = QPainterPath()
+            ring.arcMoveTo(QRectF(w * 0.14, h * 0.36, w * 0.72, h * 0.28), 30)
+            ring.arcTo(QRectF(w * 0.14, h * 0.36, w * 0.72, h * 0.28), 30, 200)
+            painter.drawPath(ring)
+        elif it == "sparkle":
+            # Estrela de 4 pontas minimalista
+            sp = QPainterPath()
+            sp.moveTo(w * 0.50, h * 0.16)
+            sp.quadTo(w * 0.50, h * 0.50, w * 0.84, h * 0.50)
+            sp.quadTo(w * 0.50, h * 0.50, w * 0.50, h * 0.84)
+            sp.quadTo(w * 0.50, h * 0.50, w * 0.16, h * 0.50)
+            sp.quadTo(w * 0.50, h * 0.50, w * 0.50, h * 0.16)
+            painter.drawPath(sp)
+        else:
+            painter.drawEllipse(QRectF(w * 0.20, h * 0.20, w * 0.60, h * 0.60))
+
+        painter.end()
 
 
 class RedditLogoWidget(QWidget):
@@ -819,10 +1188,11 @@ class PostCardWidget(QFrame):
         header_row.addStretch(1)
 
         # Botão pílula branco de alto contraste "Unir-se" (Imagem 2 e 3)
-        self.btn_join = UiSkillsButton("Membro" if is_joined else "Unir-se")
+        self.btn_join = UiSkillsButton("Unir-se")
         self.btn_join.setObjectName("JoinPillButton")
         self.btn_join.setProperty("joined", "true" if is_joined else "false")
-        self.btn_join.setToolTip(f"Seguir/Sair de r/{post.subreddit}")
+        self.btn_join.setVisible(not is_joined)
+        self.btn_join.setToolTip(f"Seguir r/{post.subreddit}")
         self.btn_join.clicked.connect(self._on_join_clicked)
         header_row.addWidget(self.btn_join)
 
@@ -877,15 +1247,8 @@ class PostCardWidget(QFrame):
             badges_row.addWidget(flair_lbl)
             has_badges = True
 
-        self.translated_badge = QLabel("🌐 Traduzido")
-        self.translated_badge.setProperty("class", "BadgeTranslated")
-        self.translated_badge.setVisible(post.show_translated)
-        badges_row.addWidget(self.translated_badge)
-        if post.show_translated:
-            has_badges = True
-
         badges_row.addStretch(1)
-        if has_badges or True:
+        if has_badges:
             main_layout.addLayout(badges_row)
 
         # 2. Título clicável do Post (com estado visited)
@@ -1039,13 +1402,17 @@ class PostCardWidget(QFrame):
         self.set_view_mode(view_mode)
 
     def _on_join_clicked(self) -> None:
-        self.is_joined = not self.is_joined
+        self.is_joined = True
         if isValid(self.btn_join):
-            self.btn_join.setText("Membro" if self.is_joined else "Unir-se")
-            self.btn_join.setProperty("joined", "true" if self.is_joined else "false")
-            self.btn_join.style().unpolish(self.btn_join)
-            self.btn_join.style().polish(self.btn_join)
+            self.btn_join.setVisible(False)
+            self.btn_join.setProperty("joined", "true")
         self.toggle_join_requested.emit(self.post.subreddit)
+
+    def set_joined(self, joined: bool) -> None:
+        self.is_joined = joined
+        if isValid(self.btn_join):
+            self.btn_join.setVisible(not joined)
+            self.btn_join.setProperty("joined", "true" if joined else "false")
 
     def _show_more_menu(self) -> None:
         menu = QMenu(self)
@@ -1243,8 +1610,6 @@ class PostCardWidget(QFrame):
         if isValid(self.title_label):
             self.title_label.setText(self.post.display_title)
         self._update_body_preview()
-        if isValid(self.translated_badge):
-            self.translated_badge.setVisible(self.post.show_translated)
         self._sync_translate_button()
 
 

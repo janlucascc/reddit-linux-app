@@ -429,6 +429,58 @@ class RedditClient:
         except Exception as exc:
             return False, f"Erro de conexão: {exc}", None
 
+    def fetch_user_subreddits(self) -> List[str]:
+        """
+        Retorna a lista de nomes de subreddits inscritos do usuário logado.
+        """
+        token = self._ensure_session()
+        if not token or not self._logged_in_user:
+            return []
+        headers = {
+            "User-Agent": USER_AGENT,
+            "Authorization": f"Bearer {token}",
+        }
+        try:
+            resp = self._session.get(
+                "https://oauth.reddit.com/subreddits/mine/subscriber?limit=100",
+                headers=headers,
+                timeout=12,
+            )
+            if resp.status_code == 200:
+                payload = resp.json()
+                children = payload.get("data", {}).get("children", [])
+                return [
+                    item.get("data", {}).get("display_name", "")
+                    for item in children
+                    if item.get("data", {}).get("display_name")
+                ]
+        except Exception:
+            pass
+        return []
+
+    def subscribe(self, subreddit: str, action: str = "sub") -> bool:
+        """
+        Inscreve ('sub') ou desinscreve ('unsub') o usuário em um subreddit.
+        """
+        token = self._ensure_session()
+        if not token or not self._logged_in_user:
+            return False
+        clean_sub = subreddit.strip().lstrip("/").removeprefix("r/").strip("/")
+        headers = {
+            "User-Agent": USER_AGENT,
+            "Authorization": f"Bearer {token}",
+        }
+        try:
+            resp = self._session.post(
+                "https://oauth.reddit.com/api/subscribe",
+                headers=headers,
+                data={"action": action, "sr_name": clean_sub},
+                timeout=10,
+            )
+            return resp.status_code == 200
+        except Exception:
+            return False
+
     def logout(self) -> None:
         """Encerra a sessão ativa e redefine para modo anônimo."""
         with self._lock:
