@@ -1,8 +1,8 @@
 [Desktop Entry]
 Name=Reddit Linux Desktop
 Comment=Cliente nativo e otimizado do Reddit para Linux com tradução integrada
-Exec=reddit-linux
-Icon=reddit-linux
+Exec=/usr/bin/python3 /home/janlucas/.gemini/antigravity/scratch/reddit-linux-app/main.py
+Icon=/home/janlucas/.gemini/antigravity/scratch/reddit-linux-app/reddit-linux.svg
 Terminal=false
 Type=Application
 Categories=Network;News;Feed;Qt;

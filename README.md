@@ -24,7 +24,7 @@ O **Reddit Linux Desktop** é uma aplicação desktop nativa construída em **Py
 
 * 🚫 **Zero Electron / Zero WebViews no Feed**: Consumo mínimo de memória RAM e inicialização instantânea.
 * ⚡ **Pronto para Usar**: Funciona diretamente, sem exigir chaves de API pagas ou cadastros de desenvolvedor.
-* 👤 **Login Familiar e Seguro**: Conecte sua conta do Reddit com usuário/senha ou Google de forma prática e oficial, sem configurações complexas de API.
+* 🌐 **Login no seu Navegador Padrão**: Conecte com segurança no seu navegador favorito (Brave, Chrome ou Firefox) com 1 clique, aproveitando sua sessão já aberta e gerenciador de senhas.
 * 🎨 **Visual Shreddit Fiel**: Inspirado na interface moderna do Reddit Web, com suporte completo a **Modo Escuro nativo** e **Modo Claro**.
 * 🌐 **Tradução Multilíngue**: Traduza postagens individuais, comentários específicos ou a página inteira em lote com 1 clique (para Português, Inglês, Espanhol, Francês, Alemão, Italiano ou Japonês).
 
@@ -115,7 +115,8 @@ chmod +x main.py
 ```text
 reddit-linux-app/
 ├── main.py               # Janela principal, ciclo de vida e gerenciamento multithread
-├── login_dialog.py       # Diálogo modal seguro de login oficial via WebEngine
+├── browser_auth.py       # Servidor local e diálogo de login via navegador padrão
+├── login_dialog.py       # Diálogo modal alternativo de login oficial via WebEngine
 ├── reddit_api.py         # Cliente de API e feeds com paginação e backoff exponencial
 ├── translator.py         # Serviço de tradução assíncrono com cache LRU
 ├── widgets.py            # Componentes gráficos de posts, comentários, avatares e diálogos

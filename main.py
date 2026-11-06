@@ -32,7 +32,7 @@ from PySide6.QtWidgets import (
 )
 from shiboken6 import isValid
 
-from login_dialog import RedditLoginDialog
+from browser_auth import BrowserLoginDialog
 from reddit_api import (
     CommentItem,
     PostItem,
@@ -947,12 +947,12 @@ class RedditLinuxWindow(QMainWindow):
         self._run_async(_task, _done)
 
     def open_login_dialog(self) -> None:
-        dialog = RedditLoginDialog(self)
+        dialog = BrowserLoginDialog(self)
         dialog.login_completed.connect(self._on_login_completed)
         dialog.exec()
 
-    def _on_login_completed(self, cookies: Dict[str, str]) -> None:
-        self.client.apply_saved_session(cookies)
+    def _on_login_completed(self, data: Dict[str, Any]) -> None:
+        self.client.apply_session_payload(data)
         self.current_user = self.client.fetch_current_user(force=True)
         self._update_user_ui()
         self._rebuild_sidebar_feeds()

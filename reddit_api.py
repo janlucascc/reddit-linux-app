@@ -199,6 +199,9 @@ class RedditClient:
         self._session.headers.update({"User-Agent": USER_AGENT})
         self._token_v2: Optional[str] = None
         self._token_expiry: float = 0.0
+        self._oauth_access_token: Optional[str] = None
+        self._oauth_refresh_token: Optional[str] = None
+        self._oauth_client_id: str = ""
         self._lock = threading.Lock()
         self._sub_cache: Dict[str, SubredditInfo] = {}
         self._image_cache: OrderedDict[str, bytes] = OrderedDict()
@@ -211,9 +214,23 @@ class RedditClient:
             if SESSION_FILE.exists():
                 saved = json.loads(SESSION_FILE.read_text(encoding="utf-8"))
                 if isinstance(saved, dict):
-                    self.apply_saved_session(saved)
+                    self.apply_session_payload(saved)
         except Exception:
             pass
+
+    def apply_session_payload(self, data: Dict[str, Any]) -> None:
+        """Aplica dados de autenticação (OAuth tokens ou Cookies de sessão)."""
+        if "access_token" in data:
+            with self._lock:
+                self._oauth_access_token = str(data["access_token"])
+                self._token_v2 = self._oauth_access_token
+                self._oauth_refresh_token = data.get("refresh_token")
+                self._oauth_client_id = str(data.get("client_id", ""))
+                expires_in = data.get("expires_in", 3600)
+                self._token_expiry = time.time() + float(expires_in) - 60
+            self.fetch_current_user(force=True)
+        else:
+            self.apply_saved_session(data)
 
     def apply_saved_session(self, cookies: Dict[str, str]) -> None:
         """Aplica os cookies capturados na tela de login oficial."""
@@ -276,6 +293,8 @@ class RedditClient:
         with self._lock:
             self._logged_in_user = None
             self._token_v2 = None
+            self._oauth_access_token = None
+            self._oauth_refresh_token = None
             self._token_expiry = 0
             self._session.cookies.clear()
             try:
@@ -288,6 +307,29 @@ class RedditClient:
     def _ensure_session(self, force: bool = False) -> Optional[str]:
         with self._lock:
             now = time.time()
+            if self._oauth_access_token and self._oauth_refresh_token and now >= self._token_expiry:
+                try:
+                    resp = requests.post(
+                        "https://www.reddit.com/api/v1/access_token",
+                        auth=(self._oauth_client_id, ""),
+                        data={
+                            "grant_type": "refresh_token",
+                            "refresh_token": self._oauth_refresh_token,
+                        },
+                        headers={"User-Agent": USER_AGENT},
+                        timeout=10,
+                    )
+                    if resp.status_code == 200:
+                        payload = resp.json()
+                        new_tok = payload.get("access_token")
+                        if new_tok:
+                            self._token_v2 = new_tok
+                            self._oauth_access_token = new_tok
+                            self._token_expiry = now + float(payload.get("expires_in", 3600)) - 60
+                            return self._token_v2
+                except Exception:
+                    pass
+
             if not force and self._token_v2 and now < self._token_expiry:
                 return self._token_v2
             try:
