@@ -5,9 +5,11 @@ com visual inspirado no Reddit Web e tradução integrada (individual, em lote e
 """
 
 from __future__ import annotations
+import os
+os.environ["MANGOHUD"] = "0"
+
 from dataclasses import asdict
 import json
-import os
 from pathlib import Path
 import sys
 import traceback
@@ -33,6 +35,7 @@ from PySide6.QtWidgets import (
 from shiboken6 import isValid
 
 from browser_auth import BrowserLoginDialog
+from post_dialog import CreatePostDialog
 from reddit_api import (
     CommentItem,
     PostItem,
@@ -46,6 +49,7 @@ from ui_theme import build_qt_palette, build_stylesheet
 from widgets import (
     CommentCardWidget,
     CommunityAvatarWidget,
+    EmbeddedVideoWidget,
     ImageViewerDialog,
     PostCardWidget,
     RedditLogoWidget,
@@ -206,6 +210,8 @@ class RedditLinuxWindow(QMainWindow):
         self._is_closing = True
         self._feed_request_id += 1
         self._detail_request_id += 1
+        if hasattr(self, "video_player"):
+            self.video_player.stop()
         self.thread_pool.clear()
         self._save_config()
         self.thread_pool.waitForDone(500)
@@ -344,6 +350,14 @@ class RedditLinuxWindow(QMainWindow):
         self.btn_theme.clicked.connect(self._toggle_theme)
         self._sync_theme_btn()
         header_layout.addWidget(self.btn_theme)
+
+        # Botão Criar Post
+        self.btn_create_post = QPushButton("✏️ Criar Post")
+        self.btn_create_post.setProperty("class", "PillButtonAccent")
+        self.btn_create_post.setCursor(QCursor(Qt.CursorShape.PointingHandCursor))
+        self.btn_create_post.setToolTip("Criar uma nova publicação no Reddit")
+        self.btn_create_post.clicked.connect(self.open_create_post_dialog)
+        header_layout.addWidget(self.btn_create_post)
 
         # Área de Usuário / Login
         self.user_area = QWidget()
@@ -677,6 +691,10 @@ class RedditLinuxWindow(QMainWindow):
 
         dp_layout.addWidget(self.detail_image_box)
 
+        self.video_player = EmbeddedVideoWidget()
+        self.video_player.setVisible(False)
+        dp_layout.addWidget(self.video_player)
+
         self.lbl_detail_stats = QLabel("")
         self.lbl_detail_stats.setStyleSheet(
             "color: #8BA2AD; font-size: 12px; font-weight: 600;"
@@ -979,6 +997,29 @@ class RedditLinuxWindow(QMainWindow):
                 self.lbl_status.setText("⚠️ Não foi possível registrar o voto.")
 
         self._run_async(_task, _done)
+
+    def open_create_post_dialog(self) -> None:
+        """Abre o diálogo modal para criar e publicar um novo post no Reddit."""
+        if not self.current_user:
+            self.open_login_dialog()
+            return
+
+        initial_sub = self.current_subreddit
+        if initial_sub.lower() in ("popular", "all", "home"):
+            initial_sub = "linux"
+
+        dialog = CreatePostDialog(
+            client=self.client,
+            initial_subreddit=initial_sub,
+            available_subreddits=self.favorites,
+            parent=self,
+        )
+        dialog.post_created.connect(self._on_post_created)
+        dialog.exec()
+
+    def _on_post_created(self, subreddit: str, post_url: str) -> None:
+        self.lbl_status.setText(f"✓ Post publicado com sucesso em r/{subreddit}!")
+        self.load_subreddit(subreddit, sort="new")
 
     # -------------------------------------------------------------------------
     # Favoritos e Barra Lateral (com validação e botão de remoção BUG-010)
@@ -1507,6 +1548,8 @@ class RedditLinuxWindow(QMainWindow):
     # -------------------------------------------------------------------------
     def show_feed_page(self) -> None:
         self._detail_request_id += 1
+        if hasattr(self, "video_player"):
+            self.video_player.stop()
         self.stack.setCurrentWidget(self.feed_page)
 
     def open_post_detail(self, post: PostItem) -> None:
@@ -1535,17 +1578,24 @@ class RedditLinuxWindow(QMainWindow):
 
         self._refresh_detail_post_texts()
 
-        images = (
-            post.gallery_images
-            if post.gallery_images
-            else ([post.highres_image_url] if post.highres_image_url else [])
-        )
-        if images:
-            self.detail_image_box.setVisible(True)
-            self.gallery_nav_bar.setVisible(len(images) > 1)
-            self._load_detail_gallery_image(images[0], 0, len(images), req_id)
-        else:
+        if post.is_video and post.video_url:
+            self.video_player.setVisible(True)
+            self.video_player.load_video(post.video_url)
             self.detail_image_box.setVisible(False)
+        else:
+            self.video_player.setVisible(False)
+            self.video_player.stop()
+            images = (
+                post.gallery_images
+                if post.gallery_images
+                else ([post.highres_image_url] if post.highres_image_url else [])
+            )
+            if images:
+                self.detail_image_box.setVisible(True)
+                self.gallery_nav_bar.setVisible(len(images) > 1)
+                self._load_detail_gallery_image(images[0], 0, len(images), req_id)
+            else:
+                self.detail_image_box.setVisible(False)
 
         while self.comments_layout.count():
             item = self.comments_layout.takeAt(0)

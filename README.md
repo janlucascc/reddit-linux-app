@@ -33,19 +33,20 @@ O **Reddit Linux Desktop** é uma aplicação desktop nativa construída em **Py
 ## 🚀 Recursos Principais
 
 ### 📰 Navegação e Feeds
-* **Autenticação Simples**: Clique em `👤 Entrar` para se autenticar pela tela oficial do Reddit. Ao entrar, o seu feed personalizado (`🏠 Início`) e karma ficam imediatamente disponíveis.
+* **Criar Publicações**: Botão `✏️ Criar Post` no cabeçalho para compor e enviar novas postagens de texto (Markdown) ou links para qualquer comunidade do Reddit com validação instantânea.
+* **Autenticação Automática**: Conecta diretamente com a sua sessão ativa do navegador (Brave, Chrome ou Firefox) com 1 clique, sem cadastros de desenvolvedor ou erros de Client ID.
 * **Votação Interativa**: Vote com `▲` (Upvote) ou `▼` (Downvote) diretamente nos cards do feed com atualização visual de pontuação em tempo real.
-* **Feeds Principais**: Acesso rápido a `r/popular`, `r/all` e comunidades locais.
+* **Feeds Principais**: Acesso rápido a `r/popular`, `r/all`, `🏠 Início (Meu Feed)` e comunidades locais.
 * **Ordenação Completa**: Alterne entre **Em Alta (Hot)**, **Novos (New)**, **Topo (Top)** (com filtros de período: dia, semana, mês, ano ou sempre) e **Subindo (Rising)**.
 * **Busca Global**: Pesquisa inteligente de postagens e comunidades com suporte a paginação contínua.
 * **Barra Lateral Customizável**: Adicione e remova suas comunidades favoritas (`r/linux`, `r/brasil`, etc.) com 1 clique.
 * **Posts Salvos**: Salve postagens favoritas localmente para leitura offline.
 
-### 🖼️ Mídia e Galerias
+### 🖼️ Mídia e Vídeos
+* **Player de Vídeo Integrado**: Reprodução nativa e direta de vídeos do Reddit (`v.redd.it`, HLS, MP4) dentro do aplicativo com controles completos (Play/Pause, barra de progresso, volume e tela cheia).
 * **Galerias Nativas**: Navegue entre múltiplas fotos com controles anteriores/próximos.
 * **Visualizador em Alta Resolução**: Modal interativo com suporte a zoom (`🔍 −`, `🔍 +`, `↔ Ajustar Largura`, `100%`).
 * **Tratamento de Infográficos**: Ajuste automático para imagens verticais longas e tirinhas sem distorção.
-* **Suporte a Vídeos (`v.redd.it`)**: Abertura e reprodução direta no player do sistema (`mpv`, `vlc`, etc.) ou navegador.
 
 ### 🌐 Sistema de Tradução Inteligente
 * **Tradução Individual**: Botão `🌐 Traduzir` / `🔄 Ver Original` em cada postagem e comentário.
@@ -115,11 +116,12 @@ chmod +x main.py
 ```text
 reddit-linux-app/
 ├── main.py               # Janela principal, ciclo de vida e gerenciamento multithread
-├── browser_auth.py       # Servidor local e diálogo de login via navegador padrão
+├── post_dialog.py        # Diálogo modal para criação e publicação de novos posts
+├── browser_auth.py       # Servidor local e detecção automática de sessão do navegador
 ├── login_dialog.py       # Diálogo modal alternativo de login oficial via WebEngine
 ├── reddit_api.py         # Cliente de API e feeds com paginação e backoff exponencial
 ├── translator.py         # Serviço de tradução assíncrono com cache LRU
-├── widgets.py            # Componentes gráficos de posts, comentários, avatares e diálogos
+├── widgets.py            # Componentes gráficos de posts, vídeo embutido, comentários e diálogos
 ├── ui_theme.py           # Paletas nativas (QPalette) e estilos QSS escuro/claro
 ├── reddit-linux.svg      # Ícone vetorial da aplicação
 ├── reddit-linux.desktop  # Atalho para integração no desktop Linux

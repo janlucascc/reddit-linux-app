@@ -288,6 +288,64 @@ class RedditClient:
         except Exception:
             return False
 
+    def submit_post(
+        self,
+        subreddit: str,
+        title: str,
+        kind: str = "self",
+        text_or_url: str = "",
+    ) -> Tuple[bool, str, Optional[str]]:
+        """
+        Publica um post em um subreddit (kind: 'self' para texto, 'link' para URL).
+        Retorna (sucesso, mensagem_ou_erro, url_do_post).
+        """
+        clean_sub = subreddit.strip().lstrip("/").removeprefix("r/").strip("/")
+        if not clean_sub:
+            return False, "Informe o nome da comunidade (ex: linux, brasil).", None
+        if not title.strip():
+            return False, "O título da publicação é obrigatório.", None
+
+        token = self._ensure_session()
+        if not token or not self._logged_in_user:
+            return False, "Você precisa estar conectado à sua conta para criar postagens.", None
+
+        headers = {
+            "User-Agent": USER_AGENT,
+            "Authorization": f"Bearer {token}",
+        }
+        data = {
+            "api_type": "json",
+            "sr": clean_sub,
+            "title": title.strip(),
+            "kind": kind,
+            "resubmit": "true",
+            "sendreplies": "true",
+        }
+        if kind == "self":
+            data["text"] = text_or_url
+        else:
+            data["url"] = text_or_url
+
+        try:
+            resp = self._session.post(
+                "https://oauth.reddit.com/api/submit",
+                headers=headers,
+                data=data,
+                timeout=15,
+            )
+            if resp.status_code == 200:
+                payload = resp.json()
+                errors = payload.get("json", {}).get("errors", [])
+                if errors:
+                    err_msg = ", ".join(e[1] if len(e) > 1 else str(e) for e in errors)
+                    return False, f"Erro do Reddit: {err_msg}", None
+                post_data = payload.get("json", {}).get("data", {})
+                post_url = post_data.get("url") or f"https://reddit.com/r/{clean_sub}"
+                return True, "Publicado com sucesso!", post_url
+            return False, f"Falha ao publicar (HTTP {resp.status_code}): {resp.text[:120]}", None
+        except Exception as e:
+            return False, f"Erro de conexão: {e}", None
+
     def logout(self) -> None:
         """Encerra a sessão ativa e redefine para modo anônimo."""
         with self._lock:

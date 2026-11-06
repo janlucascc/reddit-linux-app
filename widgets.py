@@ -29,6 +29,7 @@ from PySide6.QtWidgets import (
     QVBoxLayout,
     QWidget,
 )
+from PySide6.QtWebEngineWidgets import QWebEngineView
 from shiboken6 import isValid
 
 from reddit_api import CommentItem, PostItem
@@ -770,3 +771,96 @@ class CommentCardWidget(QFrame):
         if isValid(self.tr_badge):
             self.tr_badge.setVisible(self.comment.show_translated)
         self._sync_btn()
+
+
+class EmbeddedVideoWidget(QFrame):
+    """Reprodutor de vídeo incorporado nativamente com controles completos e suporte a HLS/MP4."""
+
+    def __init__(self, parent: Optional[QWidget] = None) -> None:
+        super().__init__(parent)
+        self.setObjectName("EmbeddedVideoContainer")
+        self.setStyleSheet(
+            "QFrame#EmbeddedVideoContainer { background-color: #0B1416; border-radius: 12px; border: 1px solid #24373E; }"
+        )
+        self.setMinimumHeight(440)
+
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(0)
+
+        # Barra Superior de Controles
+        top_bar = QWidget()
+        top_bar.setStyleSheet(
+            "background-color: #131F23; border-top-left-radius: 12px; border-top-right-radius: 12px; padding: 6px 12px; border-bottom: 1px solid #24373E;"
+        )
+        tb_layout = QHBoxLayout(top_bar)
+        tb_layout.setContentsMargins(8, 4, 8, 4)
+        tb_layout.setSpacing(8)
+
+        lbl_icon = QLabel("🎬  Vídeo do Reddit")
+        lbl_icon.setStyleSheet("font-weight: 700; font-size: 12px; color: #F2F4F5;")
+        tb_layout.addWidget(lbl_icon)
+
+        tb_layout.addStretch(1)
+
+        self.btn_ext = QPushButton("↗ Player Externo")
+        self.btn_ext.setCursor(QCursor(Qt.CursorShape.PointingHandCursor))
+        self.btn_ext.setStyleSheet(
+            "QPushButton { background: transparent; color: #8BA2AD; border: none; font-size: 11px; font-weight: 600; padding: 2px 6px; border-radius: 4px; }"
+            "QPushButton:hover { background-color: #24373E; color: #F2F4F5; }"
+        )
+        self.btn_ext.clicked.connect(self._open_external)
+        tb_layout.addWidget(self.btn_ext)
+
+        layout.addWidget(top_bar)
+
+        self.web_view = QWebEngineView()
+        self.web_view.setStyleSheet("background-color: #0B1416;")
+        layout.addWidget(self.web_view, 1)
+
+        self._current_url: str = ""
+
+    def load_video(self, video_url: str) -> None:
+        self._current_url = video_url
+        if not video_url:
+            self.stop()
+            return
+
+        html = f"""<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <style>
+    * {{ margin: 0; padding: 0; box-sizing: border-box; }}
+    body {{
+      background-color: #0B1416;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      height: 100vh;
+      overflow: hidden;
+    }}
+    video {{
+      width: 100%;
+      height: 100%;
+      max-height: 100vh;
+      object-fit: contain;
+      outline: none;
+    }}
+  </style>
+</head>
+<body>
+  <video src="{video_url}" controls autoplay playsinline loop></video>
+</body>
+</html>"""
+        self.web_view.setHtml(html)
+
+    def stop(self) -> None:
+        """Pausa e descarrega a mídia para liberar recursos."""
+        if isValid(self.web_view):
+            self.web_view.setHtml("<html><body style='background:#0B1416;'></body></html>")
+
+    def _open_external(self) -> None:
+        if self._current_url:
+            open_video_stream(self._current_url)
+
