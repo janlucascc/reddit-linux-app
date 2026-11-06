@@ -217,6 +217,9 @@ def build_stylesheet(dark: bool = True) -> str:
     nsfw_solid_text = "#0E1113" if dark else "#FFFFFF"
     nsfw_soft_bg = "rgba(255, 88, 91, 0.16)" if dark else "rgba(217, 58, 62, 0.12)"
     spoiler_soft_bg = "rgba(255, 176, 0, 0.16)" if dark else "rgba(158, 100, 0, 0.12)"
+    join_bg = "#FFFFFF" if dark else "#0E1113"
+    join_fg = "#0E1113" if dark else "#FFFFFF"
+    join_hover_bg = "#E5EAEF" if dark else "#27373D"
 
     return f"""
     /* ======================================================================
@@ -334,12 +337,49 @@ def build_stylesheet(dark: bool = True) -> str:
         background: transparent;
         color: {p['text_primary']};
         border: none;
-        font-size: 20px;
-        font-weight: 800;
+        font-size: 23px;
+        font-weight: 900;
+        letter-spacing: -0.8px;
         padding: 0px 4px;
     }}
     QPushButton#BrandButton:hover {{
         color: {p['brand_accent']};
+    }}
+
+    QFrame#SearchPillContainer {{
+        background-color: {p['surface_interactive']};
+        border: 1px solid {p['border_subtle']};
+        border-radius: 20px;
+    }}
+    QFrame#SearchPillContainer:hover {{
+        background-color: {p['surface_interactive_hover']};
+        border: 1px solid {p['border_default']};
+    }}
+
+    QPushButton#HeaderIconButton {{
+        background-color: transparent;
+        color: {p['text_primary']};
+        border: none;
+        border-radius: 18px;
+        padding: 6px 12px;
+        font-size: 13px;
+        font-weight: 700;
+    }}
+    QPushButton#HeaderIconButton:hover {{
+        background-color: {p['surface_interactive']};
+    }}
+    QPushButton#HeaderIconButton[active="true"] {{
+        background-color: {p['surface_interactive_hover']};
+        color: {p['brand_accent']};
+    }}
+
+    QLabel#NotificationBadge {{
+        background-color: {p['brand_accent']};
+        color: #FFFFFF;
+        font-size: 10px;
+        font-weight: 800;
+        border-radius: 8px;
+        padding: 1px 5px;
     }}
 
     QLabel#LinuxBrandTag {{
@@ -383,9 +423,15 @@ def build_stylesheet(dark: bool = True) -> str:
     }}
 
     QLineEdit#GlobalSearch {{
-        border-radius: 19px;
-        padding: 7px 16px;
-        font-size: 13px;
+        background-color: transparent;
+        border: none;
+        border-radius: 18px;
+        padding: 6px 10px;
+        font-size: 14px;
+    }}
+    QLineEdit#GlobalSearch:focus {{
+        border: none;
+        background-color: transparent;
     }}
 
     QComboBox {{
@@ -453,19 +499,66 @@ def build_stylesheet(dark: bool = True) -> str:
         padding: 10px 10px 4px 10px;
     }}
 
+    QPushButton#SectionCollapseHeader {{
+        background: transparent;
+        color: {p['text_muted']};
+        border: none;
+        border-radius: 8px;
+        text-align: left;
+        font-size: 11px;
+        font-weight: 800;
+        letter-spacing: 0.8px;
+        padding: 10px 10px 6px 10px;
+    }}
+    QPushButton#SectionCollapseHeader:hover {{
+        background-color: {p['surface_interactive']};
+        color: {p['text_primary']};
+    }}
+
+    QFrame#SidebarDivider {{
+        background-color: {p['border_subtle']};
+        max-height: 1px;
+        min-height: 1px;
+        border: none;
+    }}
+
+    QFrame#FeaturedGameCard {{
+        background-color: #7E3AF2;
+        border-radius: 16px;
+        border: none;
+    }}
+    QFrame#FeaturedGameCard:hover {{
+        background-color: #8B4BF5;
+    }}
+    QLabel#FeaturedGameTitle {{
+        color: #FFFFFF;
+        font-size: 14px;
+        font-weight: 800;
+    }}
+    QLabel#FeaturedGameSub {{
+        color: #F3EEFF;
+        font-size: 12px;
+        font-weight: 500;
+    }}
+    QLabel#FeaturedGameMeta {{
+        color: #DEC9FF;
+        font-size: 11px;
+        font-weight: 600;
+    }}
+
     QPushButton.NavButton {{
         background-color: transparent;
         color: {p['text_primary']};
         border: none;
-        border-radius: 8px;
+        border-radius: 10px;
         text-align: left;
-        padding: 8px 10px;
-        font-size: 13px;
+        padding: 10px 12px;
+        font-size: 14px;
         font-weight: 500;
     }}
     QPushButton.NavButton[collapsed="true"] {{
         text-align: center;
-        padding: 8px 4px;
+        padding: 10px 4px;
         font-size: 16px;
     }}
     QPushButton.NavButton:hover {{
@@ -473,7 +566,7 @@ def build_stylesheet(dark: bool = True) -> str:
     }}
     QPushButton.NavButton[active="true"] {{
         background-color: {p['surface_interactive_hover']};
-        color: {p['brand_accent']};
+        color: {p['text_primary']};
         font-weight: 700;
     }}
 
@@ -491,15 +584,15 @@ def build_stylesheet(dark: bool = True) -> str:
     }}
 
     /* ======================================================================
-       7. Cards de Postagem, Modo Compacto e Detalhes
+       7. Cards de Postagem, Modo Compacto e Detalhes (Shreddit)
        ====================================================================== */
     QFrame.PostCard {{
         background-color: {p['surface_card']};
-        border: 1px solid {p['border_default']};
+        border: 1px solid {p['border_subtle']};
         border-radius: 16px;
     }}
     QFrame.PostCard:hover {{
-        border: 1px solid {p['border_active']};
+        border: 1px solid {p['border_default']};
         background-color: {p['surface_card_hover']};
     }}
 
@@ -513,24 +606,85 @@ def build_stylesheet(dark: bool = True) -> str:
         background-color: {p['surface_card_hover']};
     }}
 
-    QFrame.DetailCard, QFrame#RightCommunityCard, QFrame#SubredditBannerCard, QFrame.SidebarCard {{
+    QFrame.DetailCard, QFrame#RightCommunityCard, QFrame#SubredditBannerCard, QFrame.SidebarCard, QFrame#RecentPostsCard {{
         background-color: {p['surface_card']};
         border: 1px solid {p['border_default']};
-        border-radius: 14px;
+        border-radius: 16px;
+    }}
+
+    QFrame.RecentPostItem {{
+        background-color: transparent;
+        border: none;
+        border-bottom: 1px solid {p['border_subtle']};
+        border-radius: 0px;
+    }}
+    QFrame.RecentPostItem:hover {{
+        background-color: {p['surface_interactive']};
+        border-radius: 8px;
+    }}
+
+    QPushButton#RecentClearBtn {{
+        background: transparent;
+        color: {p['action_link']};
+        border: none;
+        font-size: 12px;
+        font-weight: 700;
+        padding: 2px 6px;
+    }}
+    QPushButton#RecentClearBtn:hover {{
+        text-decoration: underline;
     }}
 
     QFrame#MediaFrame {{
         background-color: {p['canvas_subtle']};
         border: 1px solid {p['border_subtle']};
-        border-radius: 6px;
+        border-radius: 12px;
+    }}
+
+    /* Abas Superiores do Feed ("Para você" / "Seguindo") */
+    QPushButton#FeedTabButton {{
+        background: transparent;
+        color: {p['text_secondary']};
+        border: none;
+        border-bottom: 2px solid transparent;
+        padding: 6px 10px;
+        font-size: 14px;
+        font-weight: 600;
+    }}
+    QPushButton#FeedTabButton:hover {{
+        color: {p['text_primary']};
+    }}
+    QPushButton#FeedTabButton[active="true"] {{
+        color: {p['text_primary']};
+        font-weight: 800;
+        border-bottom: 2px solid {p['brand_accent']};
+    }}
+
+    /* Botão "Unir-se" no cabeçalho do Post Card */
+    QPushButton#JoinPillButton {{
+        background-color: {join_bg};
+        color: {join_fg};
+        border: none;
+        border-radius: 14px;
+        padding: 4px 14px;
+        font-size: 12px;
+        font-weight: 800;
+    }}
+    QPushButton#JoinPillButton:hover {{
+        background-color: {join_hover_bg};
+    }}
+    QPushButton#JoinPillButton[joined="true"] {{
+        background-color: {p['surface_interactive']};
+        color: {p['text_primary']};
+        border: 1px solid {p['border_default']};
     }}
 
     /* ======================================================================
-       8. Pilar de Votação & Botões Interativos
+       8. Pílula de Votação Unificada (Shreddit Bottom Pill) & Botões
        ====================================================================== */
-    QFrame#VotePillar {{
+    QFrame#VotePillar, QFrame#BottomVotePill {{
         background-color: {p['surface_interactive']};
-        border-radius: 18px;
+        border-radius: 16px;
         border: 1px solid {p['border_subtle']};
     }}
 

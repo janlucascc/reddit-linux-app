@@ -42,6 +42,7 @@ from PySide6.QtWidgets import (
     QLabel,
     QLineEdit,
     QMainWindow,
+    QMenu,
     QPlainTextEdit,
     QPushButton,
     QScrollArea,
@@ -73,7 +74,9 @@ from widgets import (
     ImageViewerDialog,
     PostCardSkeleton,
     PostCardWidget,
+    RecentPostItemWidget,
     RedditLogoWidget,
+    SnoovatarStatusWidget,
     UiSkillsButton,
     canonical_reddit_url,
     create_rounded_pixmap,
@@ -199,6 +202,13 @@ class RedditLinuxWindow(QMainWindow):
         self.visited_post_ids: set[str] = set(
             self.config.get("visited_posts", [])
         )
+        self.recent_posts_data: List[Dict[str, Any]] = list(
+            self.config.get("recent_posts", [])
+        )
+        self._games_expanded: bool = True
+        self._custom_feeds_expanded: bool = True
+        self._communities_expanded: bool = True
+        self._feed_tab_mode: str = "foryou"
 
         self.translator = TranslationService(target_lang=self.target_lang)
         self.thread_pool = QThreadPool.globalInstance()
@@ -249,6 +259,7 @@ class RedditLinuxWindow(QMainWindow):
             "favorites": DEFAULT_SUBREDDITS,
             "saved_posts": {},
             "visited_posts": [],
+            "recent_posts": [],
         }
 
     def _save_config(self) -> None:
@@ -263,6 +274,7 @@ class RedditLinuxWindow(QMainWindow):
                 "favorites": self.favorites,
                 "saved_posts": self.saved_posts_data,
                 "visited_posts": list(self.visited_post_ids)[-300:],
+                "recent_posts": self.recent_posts_data[-15:],
             }
             payload = json.dumps(data, ensure_ascii=False, indent=2)
             tmp_path = CONFIG_PATH.with_suffix(".json.tmp")
@@ -365,12 +377,12 @@ class RedditLinuxWindow(QMainWindow):
         root_layout.setContentsMargins(0, 0, 0, 0)
         root_layout.setSpacing(0)
 
-        # 1. Barra Superior (Header 60px estilo Reddit Shreddit)
+        # 1. Barra Superior (Header 56px estilo Reddit Shreddit — Imagem 4)
         header = QFrame()
         header.setObjectName("TopHeader")
-        header.setFixedHeight(60)
+        header.setFixedHeight(56)
         header_layout = QHBoxLayout(header)
-        header_layout.setContentsMargins(14, 8, 16, 8)
+        header_layout.setContentsMargins(16, 8, 16, 8)
         header_layout.setSpacing(10)
 
         self.btn_hamburger = UiSkillsButton("☰")
@@ -379,95 +391,130 @@ class RedditLinuxWindow(QMainWindow):
         self.btn_hamburger.clicked.connect(self.toggle_left_sidebar)
         header_layout.addWidget(self.btn_hamburger)
 
-        logo_widget = RedditLogoWidget(size=32)
-        header_layout.addWidget(logo_widget)
-
         brand_btn = QPushButton("reddit")
         brand_btn.setObjectName("BrandButton")
         brand_btn.setCursor(QCursor(Qt.CursorShape.PointingHandCursor))
         brand_btn.clicked.connect(lambda: self.load_subreddit("popular"))
         header_layout.addWidget(brand_btn)
 
-        linux_tag = QLabel("LINUX")
-        linux_tag.setObjectName("LinuxBrandTag")
-        header_layout.addWidget(linux_tag)
-
-        # Quick Community Switcher
+        # Mantém controles internos instanciados para compatibilidade e menus rápidos
         self.quick_sub_combo = QComboBox()
-        self.quick_sub_combo.setMinimumWidth(148)
-        self.quick_sub_combo.setToolTip("Troca rápida de feed ou comunidade")
+        self.quick_sub_combo.setVisible(False)
         self.quick_sub_combo.activated.connect(self._on_quick_switcher_activated)
-        header_layout.addWidget(self.quick_sub_combo)
-
-        self.search_input = QLineEdit()
-        self.search_input.setObjectName("GlobalSearch")
-        self.search_input.setPlaceholderText(
-            "🔍  Pesquisar no Reddit ou digite r/comunidade (Ctrl+K)..."
-        )
-        self.search_input.setMinimumWidth(260)
-        self.search_input.setMaximumWidth(520)
-        self.search_input.returnPressed.connect(self._on_search_submitted)
-        header_layout.addWidget(self.search_input, 1)
-
-        btn_search = UiSkillsButton("Buscar")
-        btn_search.setProperty("class", "PillButton")
-        btn_search.clicked.connect(self._on_search_submitted)
-        header_layout.addWidget(btn_search)
-
-        header_layout.addStretch(1)
 
         self.btn_translate_page = UiSkillsButton("🌐 Traduzir Página")
-        self.btn_translate_page.setProperty("class", "TranslateButton")
-        self.btn_translate_page.setToolTip(
-            "Traduz todos os posts ou comentários visíveis na tela (Ctrl+T)"
-        )
+        self.btn_translate_page.setVisible(False)
         self.btn_translate_page.clicked.connect(self.translate_current_view)
-        header_layout.addWidget(self.btn_translate_page)
 
         self.btn_auto_translate = UiSkillsButton()
-        self.btn_auto_translate.setProperty("class", "TranslateButton")
-        self.btn_auto_translate.setToolTip(
-            "Quando ativado, traduz automaticamente feeds e comentários ao abrir"
-        )
+        self.btn_auto_translate.setVisible(False)
         self.btn_auto_translate.clicked.connect(self._toggle_auto_translate)
-        self._sync_auto_translate_btn()
-        header_layout.addWidget(self.btn_auto_translate)
 
         self.lang_combo = QComboBox()
-        self.lang_combo.setObjectName("LangSelector")
-        self.lang_combo.setCursor(QCursor(Qt.CursorShape.PointingHandCursor))
+        self.lang_combo.setVisible(False)
         for code, label in SUPPORTED_LANGUAGES:
             self.lang_combo.addItem(f"🌐 {label}", code)
         idx = self.lang_combo.findData(self.target_lang)
         if idx >= 0:
             self.lang_combo.setCurrentIndex(idx)
         self.lang_combo.currentIndexChanged.connect(self._on_language_changed)
-        header_layout.addWidget(self.lang_combo)
 
         self.btn_theme = UiSkillsButton()
-        self.btn_theme.setProperty("class", "PillButton")
+        self.btn_theme.setVisible(False)
         self.btn_theme.clicked.connect(self._toggle_theme)
         self._sync_theme_btn()
-        header_layout.addWidget(self.btn_theme)
+        self._sync_auto_translate_btn()
 
-        self.btn_create_post = UiSkillsButton("✏️ Criar Post")
-        self.btn_create_post.setProperty("class", "PillButtonAccent")
+        header_layout.addStretch(1)
+
+        # Pílula Central de Busca com Snoo Laranja Embutido (#SearchPillContainer — Imagem 4)
+        self.search_pill = QFrame()
+        self.search_pill.setObjectName("SearchPillContainer")
+        self.search_pill.setFixedHeight(40)
+        self.search_pill.setMinimumWidth(360)
+        self.search_pill.setMaximumWidth(580)
+        sp_layout = QHBoxLayout(self.search_pill)
+        sp_layout.setContentsMargins(10, 0, 12, 0)
+        sp_layout.setSpacing(8)
+
+        snoo_search_icon = RedditLogoWidget(size=24)
+        sp_layout.addWidget(snoo_search_icon)
+
+        self.search_input = QLineEdit()
+        self.search_input.setObjectName("GlobalSearch")
+        self.search_input.setPlaceholderText("Buscar no Reddit")
+        self.search_input.returnPressed.connect(self._on_search_submitted)
+        sp_layout.addWidget(self.search_input, 1)
+
+        header_layout.addWidget(self.search_pill, 2)
+        header_layout.addStretch(1)
+
+        # Bloco Direito de Ações Globais (Imagem 4 & 5: 文A, ⊞, 💬, ＋ Criar, 🔔 10, Avatar Snoovatar)
+        self.btn_header_translate = UiSkillsButton("文A")
+        self.btn_header_translate.setObjectName("HeaderIconButton")
+        self.btn_header_translate.setToolTip(
+            "Tradução da página, idioma e Auto-Traduzir (Ctrl+T)"
+        )
+        self.btn_header_translate.clicked.connect(self._show_translation_header_menu)
+        header_layout.addWidget(self.btn_header_translate)
+
+        self.btn_header_communities = UiSkillsButton("⊞")
+        self.btn_header_communities.setObjectName("HeaderIconButton")
+        self.btn_header_communities.setToolTip("Troca rápida de comunidade e tema")
+        self.btn_header_communities.clicked.connect(self._show_quick_communities_menu)
+        header_layout.addWidget(self.btn_header_communities)
+
+        self.btn_header_chat = UiSkillsButton("💬")
+        self.btn_header_chat.setObjectName("HeaderIconButton")
+        self.btn_header_chat.setToolTip("Abrir Reddit Chat")
+        self.btn_header_chat.clicked.connect(
+            lambda: webbrowser.open("https://chat.reddit.com")
+        )
+        header_layout.addWidget(self.btn_header_chat)
+
+        self.btn_create_post = UiSkillsButton("＋ Criar")
+        self.btn_create_post.setObjectName("HeaderIconButton")
         self.btn_create_post.setToolTip("Criar uma nova publicação no Reddit (Ctrl+N)")
         self.btn_create_post.clicked.connect(self.open_create_post_dialog)
         header_layout.addWidget(self.btn_create_post)
 
-        # Área de Usuário / Login
+        # Sino de Notificações com Badge Laranja "10" (Imagem 4 & 5)
+        notif_wrap = QWidget()
+        nw_layout = QHBoxLayout(notif_wrap)
+        nw_layout.setContentsMargins(0, 0, 0, 0)
+        nw_layout.setSpacing(0)
+        self.btn_notifications = UiSkillsButton("🔔")
+        self.btn_notifications.setObjectName("HeaderIconButton")
+        self.btn_notifications.setToolTip("Notificações e Posts Salvos")
+        self.btn_notifications.clicked.connect(self._show_notifications_menu)
+        nw_layout.addWidget(self.btn_notifications)
+
+        self.lbl_notif_badge = QLabel("10")
+        self.lbl_notif_badge.setObjectName("NotificationBadge")
+        self.lbl_notif_badge.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        nw_layout.addWidget(
+            self.lbl_notif_badge,
+            0,
+            Qt.AlignmentFlag.AlignTop | Qt.AlignmentFlag.AlignLeft,
+        )
+        header_layout.addWidget(notif_wrap)
+
+        # Área de Usuário / Avatar Snoovatar com ponto verde online (Imagem 4 & 5)
         self.user_area = QWidget()
         self.user_area_layout = QHBoxLayout(self.user_area)
-        self.user_area_layout.setContentsMargins(0, 0, 0, 0)
+        self.user_area_layout.setContentsMargins(2, 0, 0, 0)
         self.user_area_layout.setSpacing(6)
 
-        self.btn_login = UiSkillsButton("👤 Entrar")
+        self.btn_login = UiSkillsButton("Entrar")
         self.btn_login.setProperty("class", "PillButtonAccent")
         self.btn_login.clicked.connect(self.open_login_dialog)
         self.user_area_layout.addWidget(self.btn_login)
 
+        self.snoovatar = SnoovatarStatusWidget(size=34)
+        self.snoovatar.clicked.connect(self._show_user_profile_menu)
         header_layout.addWidget(self.user_area)
+        header_layout.addWidget(self.snoovatar)
+
         root_layout.addWidget(header)
 
         # 2. Corpo Principal com QSplitter de 3 Colunas (CR-02: handleWidth = 4px)
@@ -475,26 +522,26 @@ class RedditLinuxWindow(QMainWindow):
         self.body_splitter.setChildrenCollapsible(False)
         self.body_splitter.setHandleWidth(4)
 
-        # 2A. Coluna 1: Sidebar Esquerda Retrátil (240px <-> 64px Icon Rail)
+        # 2A. Coluna 1: Sidebar Esquerda Retrátil (250px <-> 64px Icon Rail — Imagem 1)
         self.left_sidebar = QFrame()
         self.left_sidebar.setObjectName("LeftSidebar")
         self.left_sidebar.setMinimumWidth(64)
         self.left_sidebar.setMaximumWidth(320)
-        self.left_sidebar.resize(240, 700)
+        self.left_sidebar.resize(250, 700)
         sidebar_outer = QVBoxLayout(self.left_sidebar)
         sidebar_outer.setContentsMargins(8, 10, 8, 10)
-        sidebar_outer.setSpacing(6)
+        sidebar_outer.setSpacing(4)
 
         sidebar_scroll = QScrollArea()
         sidebar_scroll.setWidgetResizable(True)
         sidebar_content = QWidget()
         self.sidebar_layout = QVBoxLayout(sidebar_content)
         self.sidebar_layout.setContentsMargins(2, 2, 2, 2)
-        self.sidebar_layout.setSpacing(3)
+        self.sidebar_layout.setSpacing(4)
 
-        self.lbl_feeds_section = QLabel("FEEDS")
-        self.lbl_feeds_section.setObjectName("SidebarSectionTitle")
-        self.sidebar_layout.addWidget(self.lbl_feeds_section)
+        # Bloco Primário de Navegação (Feed principal, Popular, Notícias, Explorar, Criar comunidade)
+        self.lbl_feeds_section = QLabel("")
+        self.lbl_feeds_section.setVisible(False)
 
         self.feeds_container = QWidget()
         self.feeds_layout = QVBoxLayout(self.feeds_container)
@@ -505,8 +552,113 @@ class RedditLinuxWindow(QMainWindow):
         self.nav_buttons: Dict[str, QPushButton] = {}
         self._rebuild_sidebar_feeds()
 
-        self.lbl_favs_section = QLabel("COMUNIDADES")
-        self.lbl_favs_section.setObjectName("SidebarSectionTitle")
+        # Divisor 1
+        self.div_sidebar_1 = QFrame()
+        self.div_sidebar_1.setObjectName("SidebarDivider")
+        self.div_sidebar_1.setFixedHeight(1)
+        self.sidebar_layout.addWidget(self.div_sidebar_1)
+
+        # Seção Colapsável 1: JOGOS NO REDDIT (Imagem 1)
+        self.btn_games_section = QPushButton("JOGOS NO REDDIT                    ⌃")
+        self.btn_games_section.setObjectName("SectionCollapseHeader")
+        self.btn_games_section.setCursor(QCursor(Qt.CursorShape.PointingHandCursor))
+        self.btn_games_section.clicked.connect(self._toggle_games_section)
+        self.sidebar_layout.addWidget(self.btn_games_section)
+
+        self.games_container = QWidget()
+        games_layout = QVBoxLayout(self.games_container)
+        games_layout.setContentsMargins(0, 2, 0, 4)
+        games_layout.setSpacing(4)
+
+        # Card Destacado Roxo (#7E3AF2): Color Maps — Daily Color Puzzles
+        self.featured_game_card = QFrame()
+        self.featured_game_card.setObjectName("FeaturedGameCard")
+        self.featured_game_card.setCursor(QCursor(Qt.CursorShape.PointingHandCursor))
+        fg_layout = QHBoxLayout(self.featured_game_card)
+        fg_layout.setContentsMargins(12, 10, 12, 10)
+        fg_layout.setSpacing(10)
+
+        fg_avatar = CommunityAvatarWidget("ColorMaps", size=38)
+        fg_layout.addWidget(fg_avatar)
+
+        fg_text_col = QVBoxLayout()
+        fg_text_col.setSpacing(1)
+        lbl_fg_title = QLabel("Color Maps")
+        lbl_fg_title.setObjectName("FeaturedGameTitle")
+        lbl_fg_sub = QLabel("Daily Color Puzzles")
+        lbl_fg_sub.setObjectName("FeaturedGameSub")
+        lbl_fg_meta = QLabel("15 mil jogadores mensais")
+        lbl_fg_meta.setObjectName("FeaturedGameMeta")
+        fg_text_col.addWidget(lbl_fg_title)
+        fg_text_col.addWidget(lbl_fg_sub)
+        fg_text_col.addWidget(lbl_fg_meta)
+        fg_layout.addLayout(fg_text_col, 1)
+        self.featured_game_card.mousePressEvent = (
+            lambda e: self.load_subreddit("games")
+            if e.button() == Qt.MouseButton.LeftButton
+            else None
+        )
+        games_layout.addWidget(self.featured_game_card)
+
+        for g_icon, g_title, g_sub in [
+            ("🧩", "Merge Puzzle Game", "WebGames"),
+            ("🪐", "Orbitals", "indiegames"),
+            ("✨", "Glyph", "puzzles"),
+            ("🎮", "Descubra mais", "games"),
+        ]:
+            g_btn = QPushButton(f"{g_icon}   {g_title}")
+            g_btn.setProperty("class", "NavButton")
+            g_btn.setCursor(QCursor(Qt.CursorShape.PointingHandCursor))
+            g_btn.clicked.connect(
+                lambda checked=False, s=g_sub: self.load_subreddit(s)
+            )
+            games_layout.addWidget(g_btn)
+
+        self.sidebar_layout.addWidget(self.games_container)
+
+        # Divisor 2
+        self.div_sidebar_2 = QFrame()
+        self.div_sidebar_2.setObjectName("SidebarDivider")
+        self.div_sidebar_2.setFixedHeight(1)
+        self.sidebar_layout.addWidget(self.div_sidebar_2)
+
+        # Seção Colapsável 2: FEEDS PERSONALIZADOS (Imagem 1)
+        self.btn_custom_section = QPushButton("FEEDS PERSONALIZADOS         ⌃")
+        self.btn_custom_section.setObjectName("SectionCollapseHeader")
+        self.btn_custom_section.setCursor(QCursor(Qt.CursorShape.PointingHandCursor))
+        self.btn_custom_section.clicked.connect(self._toggle_custom_feeds_section)
+        self.sidebar_layout.addWidget(self.btn_custom_section)
+
+        self.custom_feeds_container = QWidget()
+        cf_layout = QVBoxLayout(self.custom_feeds_container)
+        cf_layout.setContentsMargins(0, 0, 0, 2)
+        cf_layout.setSpacing(2)
+
+        btn_create_feed = QPushButton("＋   Criar feed")
+        btn_create_feed.setProperty("class", "NavButton")
+        btn_create_feed.setCursor(QCursor(Qt.CursorShape.PointingHandCursor))
+        btn_create_feed.clicked.connect(self._focus_add_community_input)
+        cf_layout.addWidget(btn_create_feed)
+
+        self.btn_saved_feed = QPushButton("🔖   Posts Salvos")
+        self.btn_saved_feed.setProperty("class", "NavButton")
+        self.btn_saved_feed.setCursor(QCursor(Qt.CursorShape.PointingHandCursor))
+        self.btn_saved_feed.clicked.connect(self.show_saved_posts)
+        cf_layout.addWidget(self.btn_saved_feed)
+
+        self.sidebar_layout.addWidget(self.custom_feeds_container)
+
+        # Divisor 3
+        self.div_sidebar_3 = QFrame()
+        self.div_sidebar_3.setObjectName("SidebarDivider")
+        self.div_sidebar_3.setFixedHeight(1)
+        self.sidebar_layout.addWidget(self.div_sidebar_3)
+
+        # Seção Colapsável 3: COMUNIDADES
+        self.lbl_favs_section = QPushButton("COMUNIDADES                          ⌃")
+        self.lbl_favs_section.setObjectName("SectionCollapseHeader")
+        self.lbl_favs_section.setCursor(QCursor(Qt.CursorShape.PointingHandCursor))
+        self.lbl_favs_section.clicked.connect(self._toggle_communities_section)
         self.sidebar_layout.addWidget(self.lbl_favs_section)
 
         self.add_sub_widget = QWidget()
@@ -541,7 +693,7 @@ class RedditLinuxWindow(QMainWindow):
         # 2B. Coluna 2: Área Central com QStackedWidget (Feed Page / Detail Page)
         center_container = QWidget()
         center_layout = QVBoxLayout(center_container)
-        center_layout.setContentsMargins(16, 12, 16, 12)
+        center_layout.setContentsMargins(16, 10, 16, 12)
         center_layout.setSpacing(0)
 
         self.stack = QStackedWidget()
@@ -551,14 +703,14 @@ class RedditLinuxWindow(QMainWindow):
 
         self.body_splitter.addWidget(center_container)
 
-        # 2C. Coluna 3: Sidebar Direita (Sobre a Comunidade + Regras em Acordeão)
+        # 2C. Coluna 3: Sidebar Direita (POSTS RECENTES + Sobre a Comunidade + Regras)
         self._build_right_sidebar()
         self.body_splitter.addWidget(self.right_sidebar)
 
         self.body_splitter.setStretchFactor(0, 0)
         self.body_splitter.setStretchFactor(1, 1)
         self.body_splitter.setStretchFactor(2, 0)
-        self.body_splitter.setSizes([240, 830, 310])
+        self.body_splitter.setSizes([250, 810, 320])
 
         for i in range(1, self.body_splitter.count()):
             handle = self.body_splitter.handle(i)
@@ -590,49 +742,36 @@ class RedditLinuxWindow(QMainWindow):
         self.feed_page = QWidget()
         page_layout = QVBoxLayout(self.feed_page)
         page_layout.setContentsMargins(0, 0, 0, 0)
-        page_layout.setSpacing(12)
+        page_layout.setSpacing(8)
 
-        banner_card = QFrame()
-        banner_card.setObjectName("SubredditBannerCard")
-        banner_layout = QVBoxLayout(banner_card)
-        banner_layout.setContentsMargins(18, 14, 18, 14)
-        banner_layout.setSpacing(10)
+        # 1. Sub-Barra Superior de Filtro "Para você" | "Seguindo" + Seletor de Densidade (Imagem 2)
+        feed_top_bar = QWidget()
+        ftb_layout = QHBoxLayout(feed_top_bar)
+        ftb_layout.setContentsMargins(4, 2, 4, 2)
+        ftb_layout.setSpacing(6)
 
-        top_sub_row = QHBoxLayout()
-        top_sub_row.setSpacing(12)
+        self.btn_tab_foryou = QPushButton("Para você")
+        self.btn_tab_foryou.setObjectName("FeedTabButton")
+        self.btn_tab_foryou.setProperty("active", "true")
+        self.btn_tab_foryou.setCursor(QCursor(Qt.CursorShape.PointingHandCursor))
+        self.btn_tab_foryou.clicked.connect(lambda: self._on_feed_tab_selected("foryou"))
+        ftb_layout.addWidget(self.btn_tab_foryou)
 
-        self.feed_avatar_holder = QHBoxLayout()
-        self.feed_avatar_widget = CommunityAvatarWidget("popular", size=38)
-        self.feed_avatar_holder.addWidget(self.feed_avatar_widget)
-        top_sub_row.addLayout(self.feed_avatar_holder)
+        self.btn_tab_following = QPushButton("Seguindo")
+        self.btn_tab_following.setObjectName("FeedTabButton")
+        self.btn_tab_following.setProperty("active", "false")
+        self.btn_tab_following.setCursor(QCursor(Qt.CursorShape.PointingHandCursor))
+        self.btn_tab_following.clicked.connect(
+            lambda: self._on_feed_tab_selected("following")
+        )
+        ftb_layout.addWidget(self.btn_tab_following)
 
-        title_col = QVBoxLayout()
-        title_col.setSpacing(2)
-        self.lbl_feed_title = QLabel("r/popular")
-        self.lbl_feed_title.setProperty("role", "hero")
-        title_col.addWidget(self.lbl_feed_title)
-
-        self.lbl_feed_subtitle = QLabel("As postagens mais populares do Reddit agora")
-        self.lbl_feed_subtitle.setProperty("role", "caption")
-        title_col.addWidget(self.lbl_feed_subtitle)
-        top_sub_row.addLayout(title_col, 1)
-
-        self.btn_fav_toggle = UiSkillsButton("☆ Favoritar")
-        self.btn_fav_toggle.setProperty("class", "PillButton")
-        self.btn_fav_toggle.clicked.connect(self._toggle_current_subreddit_favorite)
-        top_sub_row.addWidget(self.btn_fav_toggle)
-
-        btn_refresh = UiSkillsButton("↻ Atualizar")
-        btn_refresh.setProperty("class", "PillButton")
-        btn_refresh.clicked.connect(self.refresh_current_feed)
-        top_sub_row.addWidget(btn_refresh)
-
-        banner_layout.addLayout(top_sub_row)
+        ftb_layout.addSpacing(12)
 
         self.sort_bar_widget = QWidget()
         sort_row = QHBoxLayout(self.sort_bar_widget)
         sort_row.setContentsMargins(0, 0, 0, 0)
-        sort_row.setSpacing(6)
+        sort_row.setSpacing(4)
 
         self.sort_buttons: Dict[str, QPushButton] = {}
         for sort_key, label in [
@@ -664,30 +803,69 @@ class RedditLinuxWindow(QMainWindow):
             self._on_time_filter_changed
         )
         sort_row.addWidget(self.time_filter_combo)
+        ftb_layout.addWidget(self.sort_bar_widget)
 
-        sort_row.addStretch(1)
+        ftb_layout.addStretch(1)
 
         self.lbl_status = QLabel("")
         self.lbl_status.setProperty("role", "caption")
-        sort_row.addWidget(self.lbl_status)
+        ftb_layout.addWidget(self.lbl_status)
 
-        # Alternância de Modo de Visualização (Card vs Compact — Sprint 3)
-        self.btn_view_card = UiSkillsButton("🃏 Cards")
+        # Alternância de Modo de Visualização estilo "日 ⌄" (Card vs Compact — Imagem 2)
+        self.btn_view_card = UiSkillsButton("日 Cards")
         self.btn_view_card.setProperty("class", "SortButton")
-        self.btn_view_card.setToolTip("Visualização completa com prévia de mídia")
+        self.btn_view_card.setToolTip("Visualização completa em Cards (Imagem 2)")
         self.btn_view_card.clicked.connect(lambda: self._set_feed_view_mode("card"))
-        sort_row.addWidget(self.btn_view_card)
+        ftb_layout.addWidget(self.btn_view_card)
 
         self.btn_view_compact = UiSkillsButton("☰ Compacto")
         self.btn_view_compact.setProperty("class", "SortButton")
-        self.btn_view_compact.setToolTip("Visualização densa estilo lista rápida")
+        self.btn_view_compact.setToolTip("Visualização densa em linhas")
         self.btn_view_compact.clicked.connect(
             lambda: self._set_feed_view_mode("compact")
         )
-        sort_row.addWidget(self.btn_view_compact)
+        ftb_layout.addWidget(self.btn_view_compact)
         self._sync_view_mode_buttons()
 
-        banner_layout.addWidget(self.sort_bar_widget)
+        page_layout.addWidget(feed_top_bar)
+
+        # 2. Banner compacto de contexto da comunidade atual
+        banner_card = QFrame()
+        banner_card.setObjectName("SubredditBannerCard")
+        banner_layout = QVBoxLayout(banner_card)
+        banner_layout.setContentsMargins(14, 10, 14, 10)
+        banner_layout.setSpacing(6)
+
+        top_sub_row = QHBoxLayout()
+        top_sub_row.setSpacing(10)
+
+        self.feed_avatar_holder = QHBoxLayout()
+        self.feed_avatar_widget = CommunityAvatarWidget("popular", size=32)
+        self.feed_avatar_holder.addWidget(self.feed_avatar_widget)
+        top_sub_row.addLayout(self.feed_avatar_holder)
+
+        title_col = QVBoxLayout()
+        title_col.setSpacing(1)
+        self.lbl_feed_title = QLabel("r/popular")
+        self.lbl_feed_title.setProperty("role", "title")
+        title_col.addWidget(self.lbl_feed_title)
+
+        self.lbl_feed_subtitle = QLabel("As postagens mais populares do Reddit agora")
+        self.lbl_feed_subtitle.setProperty("role", "caption")
+        title_col.addWidget(self.lbl_feed_subtitle)
+        top_sub_row.addLayout(title_col, 1)
+
+        self.btn_fav_toggle = UiSkillsButton("☆ Favoritar")
+        self.btn_fav_toggle.setProperty("class", "PillButton")
+        self.btn_fav_toggle.clicked.connect(self._toggle_current_subreddit_favorite)
+        top_sub_row.addWidget(self.btn_fav_toggle)
+
+        btn_refresh = UiSkillsButton("↻ Atualizar")
+        btn_refresh.setProperty("class", "PillButton")
+        btn_refresh.clicked.connect(self.refresh_current_feed)
+        top_sub_row.addWidget(btn_refresh)
+
+        banner_layout.addLayout(top_sub_row)
         page_layout.addWidget(banner_card)
 
         self.sub_search_bar = QFrame()
@@ -703,7 +881,7 @@ class RedditLinuxWindow(QMainWindow):
         self.feed_list_container = QWidget()
         self.feed_list_layout = QVBoxLayout(self.feed_list_container)
         self.feed_list_layout.setContentsMargins(0, 0, 4, 16)
-        self.feed_list_layout.setSpacing(12)
+        self.feed_list_layout.setSpacing(8)
         self.feed_list_layout.addStretch(1)
         self.feed_scroll.setWidget(self.feed_list_container)
         page_layout.addWidget(self.feed_scroll, 1)
@@ -886,19 +1064,50 @@ class RedditLinuxWindow(QMainWindow):
     def _build_right_sidebar(self) -> None:
         self.right_sidebar = QFrame()
         self.right_sidebar.setObjectName("RightCommunityCard")
-        self.right_sidebar.setMinimumWidth(240)
-        self.right_sidebar.setMaximumWidth(360)
+        self.right_sidebar.setMinimumWidth(250)
+        self.right_sidebar.setMaximumWidth(370)
         r_outer = QVBoxLayout(self.right_sidebar)
-        r_outer.setContentsMargins(10, 12, 10, 12)
+        r_outer.setContentsMargins(10, 10, 10, 10)
         r_outer.setSpacing(0)
 
         r_scroll = QScrollArea()
         r_scroll.setWidgetResizable(True)
         r_content = QWidget()
         r_layout = QVBoxLayout(r_content)
-        r_layout.setContentsMargins(8, 6, 8, 6)
+        r_layout.setContentsMargins(6, 4, 6, 4)
         r_layout.setSpacing(12)
 
+        # 1. Card de "POSTS RECENTES" com botão azul "Limpar" (Imagem 5)
+        self.recent_posts_card = QFrame()
+        self.recent_posts_card.setObjectName("RecentPostsCard")
+        rpc_layout = QVBoxLayout(self.recent_posts_card)
+        rpc_layout.setContentsMargins(14, 12, 14, 12)
+        rpc_layout.setSpacing(6)
+
+        rpc_header = QHBoxLayout()
+        rpc_header.setContentsMargins(0, 0, 0, 4)
+        lbl_recent_title = QLabel("POSTS RECENTES")
+        lbl_recent_title.setObjectName("SidebarSectionTitle")
+        rpc_header.addWidget(lbl_recent_title)
+        rpc_header.addStretch(1)
+
+        self.btn_clear_recent = QPushButton("Limpar")
+        self.btn_clear_recent.setObjectName("RecentClearBtn")
+        self.btn_clear_recent.setCursor(QCursor(Qt.CursorShape.PointingHandCursor))
+        self.btn_clear_recent.clicked.connect(self._clear_recent_posts)
+        rpc_header.addWidget(self.btn_clear_recent)
+        rpc_layout.addLayout(rpc_header)
+
+        self.recent_posts_container = QWidget()
+        self.recent_posts_layout = QVBoxLayout(self.recent_posts_container)
+        self.recent_posts_layout.setContentsMargins(0, 0, 0, 0)
+        self.recent_posts_layout.setSpacing(0)
+        rpc_layout.addWidget(self.recent_posts_container)
+
+        r_layout.addWidget(self.recent_posts_card)
+        self._rebuild_recent_posts_sidebar()
+
+        # 2. Card "SOBRE A COMUNIDADE" + Regras em Acordeão
         lbl_about = QLabel("SOBRE A COMUNIDADE")
         lbl_about.setObjectName("SidebarSectionTitle")
         r_layout.addWidget(lbl_about)
@@ -969,6 +1178,214 @@ class RedditLinuxWindow(QMainWindow):
         r_scroll.setWidget(r_content)
         r_outer.addWidget(r_scroll, 1)
 
+    def _record_recent_post(self, post: PostItem, save: bool = True) -> None:
+        """Registra um post no histórico lateral 'POSTS RECENTES' (Imagem 5)."""
+        try:
+            payload = asdict(post)
+            self.recent_posts_data = [
+                p for p in self.recent_posts_data if p.get("id") != post.id
+            ]
+            self.recent_posts_data.insert(0, payload)
+            self.recent_posts_data = self.recent_posts_data[:12]
+            if save:
+                self._save_config()
+            self._rebuild_recent_posts_sidebar()
+        except Exception:
+            pass
+
+    def _clear_recent_posts(self) -> None:
+        self.recent_posts_data.clear()
+        self._save_config()
+        self._rebuild_recent_posts_sidebar()
+        self.show_toast("Histórico de posts recentes limpo.", variant="info")
+
+    def _rebuild_recent_posts_sidebar(self) -> None:
+        if not hasattr(self, "recent_posts_layout") or not isValid(
+            self.recent_posts_container
+        ):
+            return
+        while self.recent_posts_layout.count():
+            item = self.recent_posts_layout.takeAt(0)
+            w = item.widget()
+            if w is not None:
+                self.recent_posts_layout.removeWidget(w)
+                w.setParent(None)
+                w.deleteLater()
+
+        valid_keys = PostItem.__dataclass_fields__.keys()
+        shown = 0
+        for raw in self.recent_posts_data[:6]:
+            try:
+                filtered = {k: v for k, v in raw.items() if k in valid_keys}
+                post_obj = PostItem(**filtered)
+                item_w = RecentPostItemWidget(post_obj)
+                item_w.open_post_requested.connect(self.open_post_detail)
+                item_w.open_subreddit_requested.connect(self.load_subreddit)
+                self.recent_posts_layout.addWidget(item_w)
+                shown += 1
+            except Exception:
+                pass
+
+        if shown == 0:
+            empty_lbl = QLabel(
+                "Os posts que você visualizar aparecerão aqui."
+            )
+            empty_lbl.setWordWrap(True)
+            empty_lbl.setProperty("role", "caption")
+            self.recent_posts_layout.addWidget(empty_lbl)
+
+    def _show_translation_header_menu(self) -> None:
+        menu = QMenu(self)
+        act_now = menu.addAction("🌐 Traduzir Página Atual (Ctrl+T)")
+        auto_state = "ON ✓" if self.auto_translate else "OFF"
+        act_auto = menu.addAction(f"⚡ Auto-Traduzir ao Abrir: {auto_state}")
+        menu.addSeparator()
+        lang_Actions = {}
+        for code, label in SUPPORTED_LANGUAGES:
+            prefix = "● " if code == self.target_lang else "   "
+            act = menu.addAction(f"{prefix}Idioma: {label}")
+            lang_Actions[act] = code
+
+        chosen = menu.exec(QCursor.pos())
+        if chosen == act_now:
+            self.translate_current_view()
+        elif chosen == act_auto:
+            self._toggle_auto_translate()
+        elif chosen in lang_Actions:
+            code = lang_Actions[chosen]
+            idx = self.lang_combo.findData(code)
+            if idx >= 0:
+                self.lang_combo.setCurrentIndex(idx)
+
+    def _show_quick_communities_menu(self) -> None:
+        menu = QMenu(self)
+        theme_txt = "☀️ Mudar para Tema Claro" if self.dark_mode else "🌙 Mudar para Tema Escuro"
+        act_theme = menu.addAction(theme_txt)
+        menu.addSeparator()
+        act_home = menu.addAction("🏠 Feed principal")
+        act_pop = menu.addAction("↗ Popular (r/popular)")
+        act_all = menu.addAction("🫧 Explorar (r/all)")
+        act_saved = menu.addAction("🔖 Posts Salvos")
+        menu.addSeparator()
+        fav_actions = {}
+        for fav in self.favorites:
+            act = menu.addAction(f"r/{fav}")
+            fav_actions[act] = fav
+
+        chosen = menu.exec(QCursor.pos())
+        if chosen == act_theme:
+            self._toggle_theme()
+        elif chosen == act_home:
+            self.load_subreddit("home" if self.current_user else "popular")
+        elif chosen == act_pop:
+            self.load_subreddit("popular")
+        elif chosen == act_all:
+            self.load_subreddit("all")
+        elif chosen == act_saved:
+            self.show_saved_posts()
+        elif chosen in fav_actions:
+            self.load_subreddit(fav_actions[chosen])
+
+    def _show_notifications_menu(self) -> None:
+        menu = QMenu(self)
+        act_saved = menu.addAction(f"🔖 Ver Posts Salvos ({len(self.saved_posts_data)})")
+        act_clear_badge = menu.addAction("✓ Marcar notificações como lidas")
+        act_inbox = menu.addAction("🌐 Abrir Inbox no Reddit Web")
+        chosen = menu.exec(QCursor.pos())
+        if chosen == act_saved:
+            self.show_saved_posts()
+        elif chosen == act_clear_badge:
+            if hasattr(self, "lbl_notif_badge") and isValid(self.lbl_notif_badge):
+                self.lbl_notif_badge.setVisible(False)
+            self.show_toast("Notificações marcadas como lidas.", variant="success")
+        elif chosen == act_inbox:
+            webbrowser.open("https://www.reddit.com/notifications")
+
+    def _show_user_profile_menu(self) -> None:
+        menu = QMenu(self)
+        if self.current_user:
+            uname = self.current_user.get("username", "Usuário")
+            karma = self.current_user.get("karma", 0)
+            hdr = menu.addAction(f"👤 u/{uname} ({format_count(karma)} karma)")
+            hdr.setEnabled(False)
+            menu.addSeparator()
+            act_saved = menu.addAction("🔖 Posts Salvos")
+            act_theme = menu.addAction(
+                "☀️ Tema Claro" if self.dark_mode else "🌙 Tema Escuro"
+            )
+            menu.addSeparator()
+            act_logout = menu.addAction("🚪 Encerrar Sessão (Sair)")
+            chosen = menu.exec(QCursor.pos())
+            if chosen == act_saved:
+                self.show_saved_posts()
+            elif chosen == act_theme:
+                self._toggle_theme()
+            elif chosen == act_logout:
+                self._on_logout_clicked()
+        else:
+            act_login = menu.addAction("🔑 Entrar na Conta do Reddit...")
+            act_theme = menu.addAction(
+                "☀️ Tema Claro" if self.dark_mode else "🌙 Tema Escuro"
+            )
+            chosen = menu.exec(QCursor.pos())
+            if chosen == act_login:
+                self.open_login_dialog()
+            elif chosen == act_theme:
+                self._toggle_theme()
+
+    def _toggle_games_section(self) -> None:
+        self._games_expanded = not self._games_expanded
+        arrow = "⌃" if self._games_expanded else "⌄"
+        self.btn_games_section.setText(f"JOGOS NO REDDIT                    {arrow}")
+        self.games_container.setVisible(
+            self._games_expanded and not self._sidebar_collapsed
+        )
+
+    def _toggle_custom_feeds_section(self) -> None:
+        self._custom_feeds_expanded = not self._custom_feeds_expanded
+        arrow = "⌃" if self._custom_feeds_expanded else "⌄"
+        self.btn_custom_section.setText(f"FEEDS PERSONALIZADOS         {arrow}")
+        self.custom_feeds_container.setVisible(
+            self._custom_feeds_expanded and not self._sidebar_collapsed
+        )
+
+    def _toggle_communities_section(self) -> None:
+        self._communities_expanded = not self._communities_expanded
+        arrow = "⌃" if self._communities_expanded else "⌄"
+        self.lbl_favs_section.setText(f"COMUNIDADES                          {arrow}")
+        self.add_sub_widget.setVisible(
+            self._communities_expanded and not self._sidebar_collapsed
+        )
+        self.favs_container.setVisible(self._communities_expanded)
+
+    def _focus_add_community_input(self) -> None:
+        if self._sidebar_collapsed:
+            self.toggle_left_sidebar()
+        if not self._communities_expanded:
+            self._toggle_communities_section()
+        self.add_sub_input.setFocus()
+
+    def _on_feed_tab_selected(self, tab_mode: str) -> None:
+        self._feed_tab_mode = tab_mode
+        for key, btn in (
+            ("foryou", self.btn_tab_foryou),
+            ("following", self.btn_tab_following),
+        ):
+            if isValid(btn):
+                btn.setProperty("active", "true" if key == tab_mode else "false")
+                btn.style().unpolish(btn)
+                btn.style().polish(btn)
+        if tab_mode == "foryou":
+            self.load_subreddit("popular", sort="hot")
+        else:
+            if self.current_user:
+                self.load_subreddit("home", sort="hot")
+            elif self.favorites:
+                joined = "+".join(self.favorites[:8])
+                self.load_subreddit(joined, sort="hot")
+            else:
+                self.load_subreddit("popular", sort="hot")
+
     def _setup_shortcuts(self) -> None:
         QShortcut(QKeySequence("Ctrl+F"), self, activated=self.search_input.setFocus)
         QShortcut(QKeySequence("Ctrl+K"), self, activated=self.search_input.setFocus)
@@ -1012,13 +1429,30 @@ class RedditLinuxWindow(QMainWindow):
             if collapsed:
                 self.left_sidebar.setFixedWidth(64)
             else:
-                self.left_sidebar.setMinimumWidth(180)
+                self.left_sidebar.setMinimumWidth(190)
                 self.left_sidebar.setMaximumWidth(320)
-                self.left_sidebar.resize(240, self.left_sidebar.height())
+                self.left_sidebar.resize(250, self.left_sidebar.height())
 
-        for w in (self.lbl_feeds_section, self.lbl_favs_section, self.add_sub_widget):
+        for w in (
+            self.btn_games_section,
+            self.games_container,
+            self.div_sidebar_1,
+            self.div_sidebar_2,
+            self.div_sidebar_3,
+            self.btn_custom_section,
+            self.custom_feeds_container,
+            self.lbl_favs_section,
+            self.add_sub_widget,
+        ):
             if isValid(w):
-                w.setVisible(not collapsed)
+                if w is self.games_container:
+                    w.setVisible((not collapsed) and self._games_expanded)
+                elif w is self.custom_feeds_container:
+                    w.setVisible((not collapsed) and self._custom_feeds_expanded)
+                elif w is self.add_sub_widget:
+                    w.setVisible((not collapsed) and self._communities_expanded)
+                else:
+                    w.setVisible(not collapsed)
 
         self._rebuild_sidebar_feeds()
         self._rebuild_favorites_sidebar()
@@ -1148,16 +1582,16 @@ class RedditLinuxWindow(QMainWindow):
                 w.setParent(None)
                 w.deleteLater()
 
-        feed_items = []
-        if self.current_user:
-            feed_items.append(("home", "🏠", "🏠  Início (Meu Feed)"))
-        feed_items.extend(
-            [
-                ("popular", "🔥", "🔥  Popular"),
-                ("all", "🌍", "🌍  Tudo (r/all)"),
-                ("__saved__", "🔖", "🔖  Posts Salvos"),
-            ]
-        )
+        # Bloco Primário de Navegação (Imagem 1):
+        # 🏠 Feed principal, ↗ Popular, 📰 Notícias, 🫧 Explorar, ＋ Criar comunidade
+        home_target = "home" if self.current_user else "popular"
+        feed_items = [
+            (home_target, "🏠", "🏠   Feed principal"),
+            ("popular", "↗", "↗   Popular"),
+            ("worldnews", "📰", "📰   Notícias"),
+            ("all", "🫧", "🫧   Explorar"),
+            ("__create_comm__", "＋", "＋   Criar comunidade"),
+        ]
 
         self.nav_buttons = {}
         for sub_id, icon_txt, full_title in feed_items:
@@ -1167,30 +1601,40 @@ class RedditLinuxWindow(QMainWindow):
             btn.setProperty(
                 "collapsed", "true" if self._sidebar_collapsed else "false"
             )
-            btn.setToolTip(full_title)
+            btn.setToolTip(full_title.strip())
             btn.setCursor(QCursor(Qt.CursorShape.PointingHandCursor))
-            if sub_id == "__saved__":
-                btn.clicked.connect(self.show_saved_posts)
+            if sub_id == "__create_comm__":
+                btn.clicked.connect(self._focus_add_community_input)
             else:
                 btn.clicked.connect(
                     lambda checked=False, s=sub_id: self.load_subreddit(s)
                 )
             self.feeds_layout.addWidget(btn)
-            self.nav_buttons[sub_id] = btn
+            # Evita sobrescrever 'popular' quando não logado (para destacar Feed principal ou Popular)
+            key_name = "home_feed" if full_title.endswith("Feed principal") else sub_id
+            self.nav_buttons[key_name] = btn
 
+        self._sync_sidebar_active_states()
+
+    def _sync_sidebar_active_states(self) -> None:
         for key, btn in self.nav_buttons.items():
+            if not isValid(btn):
+                continue
             active = False
-            if key == "__saved__" and self.is_viewing_saved:
-                active = True
-            elif (
-                not self.is_viewing_saved
-                and not self.is_searching
-                and self.current_subreddit.lower() == key.lower()
-            ):
-                active = True
+            if not self.is_viewing_saved and not self.is_searching:
+                if key == "home_feed" and self.current_subreddit.lower() == "home":
+                    active = True
+                elif key.lower() == self.current_subreddit.lower():
+                    active = True
             btn.setProperty("active", "true" if active else "false")
             btn.style().unpolish(btn)
             btn.style().polish(btn)
+        if hasattr(self, "btn_saved_feed") and isValid(self.btn_saved_feed):
+            self.btn_saved_feed.setProperty(
+                "active", "true" if self.is_viewing_saved else "false"
+            )
+            self.btn_saved_feed.style().unpolish(self.btn_saved_feed)
+            self.btn_saved_feed.style().polish(self.btn_saved_feed)
 
     def _update_user_ui(self) -> None:
         if not hasattr(self, "user_area_layout"):
@@ -1206,30 +1650,17 @@ class RedditLinuxWindow(QMainWindow):
         if self.current_user:
             uname = self.current_user.get("username", "Usuário")
             karma = self.current_user.get("karma", 0)
+            if hasattr(self, "snoovatar") and isValid(self.snoovatar):
+                self.snoovatar.set_logged_in(True, username=uname)
 
-            user_pill = QFrame()
-            user_pill.setProperty("class", "PillButton")
-            up_layout = QHBoxLayout(user_pill)
-            up_layout.setContentsMargins(10, 2, 10, 2)
-            up_layout.setSpacing(6)
-
-            lbl_name = QLabel(f"👤 u/{uname}")
-            lbl_name.setProperty("role", "subtitle")
-            up_layout.addWidget(lbl_name)
-
-            lbl_karma = QLabel(f"• {format_count(karma)} karma")
-            lbl_karma.setProperty("class", "BadgeVideo")
-            up_layout.addWidget(lbl_karma)
-
-            self.user_area_layout.addWidget(user_pill)
-
-            btn_logout = UiSkillsButton("Sair")
-            btn_logout.setProperty("class", "PillButton")
-            btn_logout.setToolTip("Desconectar conta do Reddit")
-            btn_logout.clicked.connect(self._on_logout_clicked)
-            self.user_area_layout.addWidget(btn_logout)
+            lbl_name = QLabel(f"u/{uname}")
+            lbl_name.setProperty("role", "caption")
+            lbl_name.setToolTip(f"Conectado como u/{uname} • {format_count(karma)} karma")
+            self.user_area_layout.addWidget(lbl_name)
         else:
-            self.btn_login = UiSkillsButton("👤 Entrar")
+            if hasattr(self, "snoovatar") and isValid(self.snoovatar):
+                self.snoovatar.set_logged_in(False)
+            self.btn_login = UiSkillsButton("Entrar")
             self.btn_login.setProperty("class", "PillButtonAccent")
             self.btn_login.clicked.connect(self.open_login_dialog)
             self.user_area_layout.addWidget(self.btn_login)
@@ -1401,8 +1832,12 @@ class RedditLinuxWindow(QMainWindow):
         for sub in self.favorites:
             row_widget = QWidget()
             row_layout = QHBoxLayout(row_widget)
-            row_layout.setContentsMargins(0, 0, 0, 0)
-            row_layout.setSpacing(2)
+            row_layout.setContentsMargins(4, 0, 2, 0)
+            row_layout.setSpacing(6)
+
+            if not self._sidebar_collapsed:
+                sub_avatar = CommunityAvatarWidget(sub, size=20)
+                row_layout.addWidget(sub_avatar)
 
             label_txt = sub[:2].upper() if self._sidebar_collapsed else f"r/{sub}"
             btn = QPushButton(label_txt)
@@ -1436,20 +1871,7 @@ class RedditLinuxWindow(QMainWindow):
 
             self.favs_layout.addWidget(row_widget)
 
-        for key, btn in self.nav_buttons.items():
-            active = False
-            if key == "__saved__" and self.is_viewing_saved:
-                active = True
-            elif (
-                not self.is_viewing_saved
-                and not self.is_searching
-                and self.current_subreddit.lower() == key.lower()
-            ):
-                active = True
-            btn.setProperty("active", "true" if active else "false")
-            btn.style().unpolish(btn)
-            btn.style().polish(btn)
-
+        self._sync_sidebar_active_states()
         self._sync_quick_switcher()
 
     def _remove_favorite_subreddit(self, sub: str) -> None:
@@ -1909,6 +2331,7 @@ class RedditLinuxWindow(QMainWindow):
                 w.deleteLater()
 
         insert_pos = max(0, self.feed_list_layout.count() - 1)
+        fav_lower = {f.lower() for f in self.favorites}
         for post in posts:
             cached_t = self.translator.get_cached(post.title)
             if cached_t:
@@ -1916,22 +2339,31 @@ class RedditLinuxWindow(QMainWindow):
 
             is_saved = post.id in self.saved_posts_data
             is_visited = post.id in self.visited_post_ids
+            is_joined = post.subreddit.lower() in fav_lower
             card = PostCardWidget(
                 post=post,
                 is_saved=is_saved,
                 on_request_image=self._request_image_async,
                 view_mode=self.view_mode,
                 is_visited=is_visited,
+                is_joined=is_joined,
             )
             card.open_post_requested.connect(self.open_post_detail)
             card.open_subreddit_requested.connect(self.load_subreddit)
             card.translate_post_requested.connect(self.translate_single_post_card)
             card.toggle_save_requested.connect(self._toggle_save_post)
+            card.toggle_join_requested.connect(self._on_card_join_toggled)
             card.vote_requested.connect(self._on_card_vote_requested)
 
             self.feed_cards.append(card)
             self.feed_list_layout.insertWidget(insert_pos, card)
             insert_pos += 1
+
+        # Se a lista lateral 'POSTS RECENTES' ainda estiver vazia, preenche com os primeiros posts do feed (Imagem 5)
+        if not self.recent_posts_data and posts:
+            for p in reversed(posts[:5]):
+                self._record_recent_post(p, save=False)
+            self._save_config()
 
         if self.next_after and not self.is_viewing_saved:
             btn_more = UiSkillsButton("⬇  Carregar mais postagens")
@@ -1951,6 +2383,21 @@ class RedditLinuxWindow(QMainWindow):
                     )
                 )
             self.feed_list_layout.insertWidget(insert_pos, btn_more)
+
+    def _on_card_join_toggled(self, sub: str) -> None:
+        if not sub or not is_valid_subreddit_name(sub):
+            return
+        existing = [f for f in self.favorites if f.lower() == sub.lower()]
+        if existing:
+            for e in existing:
+                self.favorites.remove(e)
+            self.show_toast(f"Você saiu de r/{sub}.", variant="info")
+        else:
+            self.favorites.append(sub)
+            self.show_toast(f"✓ Você se uniu a r/{sub}!", variant="success")
+        self._save_config()
+        self._sync_fav_button()
+        self._rebuild_favorites_sidebar()
 
     def _toggle_save_post(self, post: PostItem) -> None:
         if post.id in self.saved_posts_data:
@@ -1975,7 +2422,7 @@ class RedditLinuxWindow(QMainWindow):
         req_id = self._detail_request_id
 
         self.visited_post_ids.add(post.id)
-        self._save_config()
+        self._record_recent_post(post, save=True)
 
         self.current_post = post
         self.current_comments = []

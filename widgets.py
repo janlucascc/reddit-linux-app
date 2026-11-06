@@ -46,6 +46,7 @@ from PySide6.QtWidgets import (
     QFrame,
     QHBoxLayout,
     QLabel,
+    QMenu,
     QPlainTextEdit,
     QPushButton,
     QScrollArea,
@@ -344,6 +345,82 @@ class CommunityAvatarWidget(QWidget):
             Qt.AlignmentFlag.AlignCenter,
             "r/",
         )
+        painter.end()
+
+
+class SnoovatarStatusWidget(QWidget):
+    """
+    Avatar circular dourado do usuário (Snoovatar) com ponto verde de status online
+    no canto inferior direito (conforme Imagens 4 e 5 do Shreddit).
+    """
+
+    clicked = Signal()
+
+    def __init__(
+        self,
+        username: str = "",
+        online: bool = True,
+        size: int = 34,
+        parent: Optional[QWidget] = None,
+    ) -> None:
+        super().__init__(parent)
+        self._username = username
+        self._online = online
+        self.setFixedSize(size, size)
+        self.setCursor(QCursor(Qt.CursorShape.PointingHandCursor))
+        ThemeManager.instance().theme_changed.connect(self._on_theme_changed)
+
+    def _on_theme_changed(self, _mode: str) -> None:
+        if isValid(self):
+            self.update()
+
+    def set_user_state(self, username: str, online: bool = True) -> None:
+        self._username = username
+        self._online = online
+        if isValid(self):
+            self.update()
+
+    def set_logged_in(self, logged_in: bool, username: str = "") -> None:
+        self._username = username if logged_in else ""
+        self._online = True
+        self.setToolTip(
+            f"Perfil: u/{username} (Online)" if logged_in else "Menu de Conta e Tema"
+        )
+        if isValid(self):
+            self.update()
+
+    def mousePressEvent(self, event) -> None:
+        if event.button() == Qt.MouseButton.LeftButton:
+            self.clicked.emit()
+            event.accept()
+            return
+        super().mousePressEvent(event)
+
+    def paintEvent(self, event) -> None:
+        tokens = ThemeManager.instance().tokens
+        painter = QPainter(self)
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing, True)
+        w = float(self.width())
+        h = float(self.height())
+
+        # Círculo principal amarelo-ouro estilo Snoovatar (Imagens 4 e 5)
+        painter.setPen(Qt.PenStyle.NoPen)
+        painter.setBrush(QColor("#D4AF37"))
+        painter.drawEllipse(QRectF(1, 1, w - 2, h - 2))
+
+        # Silhueta interna do Snoo
+        painter.setBrush(QColor("#A6831B"))
+        painter.drawEllipse(QRectF(w * 0.25, h * 0.36, w * 0.50, h * 0.42))
+        painter.drawEllipse(QRectF(w * 0.22, h * 0.58, w * 0.56, h * 0.36))
+
+        # Ponto verde de status online no canto inferior esquerdo/direito
+        if self._online:
+            dot_size = max(8.0, w * 0.28)
+            painter.setPen(QPen(QColor(tokens.canvas_subtle), 1.8))
+            painter.setBrush(QColor("#46D160"))
+            painter.drawEllipse(
+                QRectF(1.0, h - dot_size - 1.0, dot_size, dot_size)
+            )
         painter.end()
 
 
@@ -665,17 +742,18 @@ class ImageViewerDialog(QDialog):
 
 class PostCardWidget(QFrame):
     """
-    Card de postagem inspirado na arquitetura semântica do Reddit moderno (Shreddit):
-    - Coluna vertical esquerda de votação (#VotePillar, 44px) no modo Card
-    - Modo Compacto (linha densa) alternável dinamicamente
-    - Pre-reserva de altura de mídia (#MediaFrame) contra Layout Shift (CLS = 0, CR-04)
-    - Superfície clicável unificada com marcação de post visitado
+    Card de postagem inspirado na arquitetura real do Reddit moderno (Shreddit — Imagens 2 e 3):
+    - Cabeçalho com Avatar 24px + r/Subreddit • há X h à esquerda e botão pílula branco 'Unir-se' + '•••' à direita
+    - Linha de tags semânticas (🔞 18+, 📌 Fixado, Spoiler, Flair) acima do título
+    - Título bold full-width + prévia de texto + container de mídia com altura pré-reservada (CLS = 0, CR-04)
+    - Barra de ações inferior unificada: Pílula de Votação (#BottomVotePill: ⇧ score ⇩), 💬 Comentários, 🔄 Traduzir, ↗ Compartilhar
     """
 
     open_post_requested = Signal(object)  # PostItem
     open_subreddit_requested = Signal(str)  # nome do subreddit
     translate_post_requested = Signal(object, object)  # PostItem, PostCardWidget
     toggle_save_requested = Signal(object)  # PostItem
+    toggle_join_requested = Signal(str)  # nome do subreddit
     vote_requested = Signal(object, int)  # PostItem, direction (1, -1, 0)
 
     def __init__(
@@ -685,11 +763,13 @@ class PostCardWidget(QFrame):
         on_request_image: Optional[Callable[[str, Callable[[bytes], None]], None]] = None,
         view_mode: str = "card",
         is_visited: bool = False,
+        is_joined: bool = False,
         parent: Optional[QWidget] = None,
     ) -> None:
         super().__init__(parent)
         self.post = post
         self.is_saved = is_saved
+        self.is_joined = is_joined
         self._view_mode = view_mode
         self._is_visited = is_visited
         self._raw_image_bytes: Optional[bytes] = None
@@ -704,50 +784,15 @@ class PostCardWidget(QFrame):
             self._vote_state = 0
         self._base_score: int = post.score - self._vote_state
 
-        outer_layout = QHBoxLayout(self)
-        outer_layout.setContentsMargins(0, 0, 0, 0)
-        outer_layout.setSpacing(0)
-
-        # 1. Coluna Vertical de Votação (#VotePillar — 44px)
-        self.vote_pillar = QFrame()
-        self.vote_pillar.setObjectName("VotePillar")
-        self.vote_pillar.setFixedWidth(46)
-        vp_layout = QVBoxLayout(self.vote_pillar)
-        vp_layout.setContentsMargins(6, 12, 6, 12)
-        vp_layout.setSpacing(4)
-
-        self.btn_upvote = UiSkillsButton("▲")
-        self.btn_upvote.setObjectName("VoteButton")
-        self.btn_upvote.setToolTip("Upvote")
-        self.btn_upvote.clicked.connect(lambda: self._on_vote_clicked(1))
-        vp_layout.addWidget(self.btn_upvote, 0, Qt.AlignmentFlag.AlignHCenter)
-
-        self.lbl_score = QLabel(post.formatted_score)
-        self.lbl_score.setObjectName("VoteScore")
-        self.lbl_score.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        vp_layout.addWidget(self.lbl_score)
-
-        self.btn_downvote = UiSkillsButton("▼")
-        self.btn_downvote.setObjectName("VoteButton")
-        self.btn_downvote.setToolTip("Downvote")
-        self.btn_downvote.clicked.connect(lambda: self._on_vote_clicked(-1))
-        vp_layout.addWidget(self.btn_downvote, 0, Qt.AlignmentFlag.AlignHCenter)
-
-        vp_layout.addStretch(1)
-        outer_layout.addWidget(self.vote_pillar)
-
-        # 2. Coluna Principal de Conteúdo
-        content_widget = QWidget()
-        main_layout = QVBoxLayout(content_widget)
+        main_layout = QVBoxLayout(self)
         main_layout.setContentsMargins(16, 12, 16, 12)
         main_layout.setSpacing(8)
-        outer_layout.addWidget(content_widget, 1)
 
-        # 2.1 Cabeçalho: Avatar + r/subreddit • u/autor • tempo + Badges Semânticas
+        # 1. Cabeçalho Superior (Imagens 2 e 3): Avatar 24px + r/Subreddit • há X h ... [Unir-se] [•••]
         header_row = QHBoxLayout()
         header_row.setSpacing(6)
 
-        avatar = CommunityAvatarWidget(post.subreddit, size=22)
+        avatar = CommunityAvatarWidget(post.subreddit, size=24)
         header_row.addWidget(avatar)
 
         btn_sub = QPushButton(post.subreddit_prefixed)
@@ -758,49 +803,84 @@ class PostCardWidget(QFrame):
         )
         header_row.addWidget(btn_sub)
 
-        meta_lbl = QLabel(f"• u/{post.author} • {post.relative_time}")
+        meta_lbl = QLabel(f"• {post.relative_time}")
         meta_lbl.setProperty("role", "caption")
+        meta_lbl.setToolTip(f"Postado por u/{post.author}")
         header_row.addWidget(meta_lbl)
+
+        header_row.addStretch(1)
+
+        # Botão pílula branco de alto contraste "Unir-se" (Imagem 2 e 3)
+        self.btn_join = UiSkillsButton("Membro" if is_joined else "Unir-se")
+        self.btn_join.setObjectName("JoinPillButton")
+        self.btn_join.setProperty("joined", "true" if is_joined else "false")
+        self.btn_join.setToolTip(f"Seguir/Sair de r/{post.subreddit}")
+        self.btn_join.clicked.connect(self._on_join_clicked)
+        header_row.addWidget(self.btn_join)
+
+        # Botão de menu "•••" (Imagem 2 e 3)
+        self.btn_more = UiSkillsButton("•••")
+        self.btn_more.setProperty("class", "PillButton")
+        self.btn_more.setFixedSize(32, 28)
+        self.btn_more.setToolTip("Mais opções")
+        self.btn_more.clicked.connect(self._show_more_menu)
+        header_row.addWidget(self.btn_more)
+
+        main_layout.addLayout(header_row)
+
+        # 1.5 Linha de Tags / Badges Semânticas logo acima do título (Imagem 3: 🔞 18+)
+        badges_row = QHBoxLayout()
+        badges_row.setSpacing(6)
+        has_badges = False
+
+        if post.over_18:
+            nsfw_lbl = QLabel("🔞 18+")
+            nsfw_lbl.setProperty("class", "BadgeNSFW")
+            badges_row.addWidget(nsfw_lbl)
+            has_badges = True
 
         if post.stickied:
             pin_lbl = QLabel("📌 Fixado")
             pin_lbl.setProperty("class", "BadgeStickied")
-            header_row.addWidget(pin_lbl)
+            badges_row.addWidget(pin_lbl)
+            has_badges = True
 
         if post.is_video:
             vid_lbl = QLabel("🎬 Vídeo")
             vid_lbl.setProperty("class", "BadgeVideo")
-            header_row.addWidget(vid_lbl)
-
-        if post.over_18:
-            nsfw_lbl = QLabel("18+")
-            nsfw_lbl.setProperty("class", "BadgeNSFW")
-            header_row.addWidget(nsfw_lbl)
+            badges_row.addWidget(vid_lbl)
+            has_badges = True
 
         if getattr(post, "spoiler", False):
             sp_lbl = QLabel("SPOILER")
             sp_lbl.setProperty("class", "BadgeSpoiler")
-            header_row.addWidget(sp_lbl)
+            badges_row.addWidget(sp_lbl)
+            has_badges = True
 
         if getattr(post, "oc", False):
             oc_lbl = QLabel("OC")
             oc_lbl.setProperty("class", "BadgeOC")
-            header_row.addWidget(oc_lbl)
+            badges_row.addWidget(oc_lbl)
+            has_badges = True
 
         if post.flair:
             flair_lbl = QLabel(post.flair[:32])
             flair_lbl.setProperty("class", "BadgeFlair")
-            header_row.addWidget(flair_lbl)
+            badges_row.addWidget(flair_lbl)
+            has_badges = True
 
         self.translated_badge = QLabel("🌐 Traduzido")
         self.translated_badge.setProperty("class", "BadgeTranslated")
         self.translated_badge.setVisible(post.show_translated)
-        header_row.addWidget(self.translated_badge)
+        badges_row.addWidget(self.translated_badge)
+        if post.show_translated:
+            has_badges = True
 
-        header_row.addStretch(1)
-        main_layout.addLayout(header_row)
+        badges_row.addStretch(1)
+        if has_badges or True:
+            main_layout.addLayout(badges_row)
 
-        # 2.2 Título clicável do Post (com estado visited)
+        # 2. Título clicável do Post (com estado visited)
         self.title_label = QLabel(post.display_title)
         self.title_label.setWordWrap(True)
         self.title_label.setCursor(QCursor(Qt.CursorShape.PointingHandCursor))
@@ -866,19 +946,77 @@ class PostCardWidget(QFrame):
         else:
             self.image_container.setVisible(False)
 
-        # 2.6 Barra de ações inferior estilo Reddit Shreddit
+        # 2.6 Barra de ações inferior estilo Shreddit (Imagem 3):
+        # [ ⇧ 3 ⇩ ]  [ 💬 15 ]  [ 🔄 ]  [ ↗ Compartilhar ]
         actions_row = QHBoxLayout()
         actions_row.setSpacing(8)
 
+        # Pílula de Votação Unificada (#BottomVotePill)
+        self.vote_pill = QFrame()
+        self.vote_pill.setObjectName("BottomVotePill")
+        self.vote_pill.setFixedHeight(32)
+        vp_layout = QHBoxLayout(self.vote_pill)
+        vp_layout.setContentsMargins(4, 0, 4, 0)
+        vp_layout.setSpacing(2)
+
+        self.btn_upvote = UiSkillsButton("⇧")
+        self.btn_upvote.setObjectName("VoteButton")
+        self.btn_upvote.setFixedSize(28, 28)
+        self.btn_upvote.setToolTip("Upvote")
+        self.btn_upvote.clicked.connect(lambda: self._on_vote_clicked(1))
+        vp_layout.addWidget(self.btn_upvote)
+
+        self.lbl_score = QLabel(post.formatted_score)
+        self.lbl_score.setObjectName("VoteScore")
+        self.lbl_score.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        vp_layout.addWidget(self.lbl_score)
+
+        self.btn_downvote = UiSkillsButton("⇩")
+        self.btn_downvote.setObjectName("VoteButton")
+        self.btn_downvote.setFixedSize(28, 28)
+        self.btn_downvote.setToolTip("Downvote")
+        self.btn_downvote.clicked.connect(lambda: self._on_vote_clicked(-1))
+        vp_layout.addWidget(self.btn_downvote)
+
+        actions_row.addWidget(self.vote_pill)
+
+        # Pílula de Comentários
         comm_btn = UiSkillsButton(f"💬  {post.formatted_comments}")
         comm_btn.setProperty("class", "PillButton")
+        comm_btn.setFixedHeight(32)
         comm_btn.setToolTip("Abrir postagem e ler comentários")
         comm_btn.clicked.connect(lambda: self._emit_open_post())
         actions_row.addWidget(comm_btn)
 
+        # Pílula de Tradução / Repost (🔄 na Imagem 3)
+        self.translate_btn = UiSkillsButton()
+        self.translate_btn.setProperty("class", "TranslateButton")
+        self.translate_btn.setFixedHeight(32)
+        self.translate_btn.clicked.connect(
+            lambda: self.translate_post_requested.emit(self.post, self)
+        )
+        self._sync_translate_button()
+        actions_row.addWidget(self.translate_btn)
+
+        # Pílula de Compartilhar (↗ Compartilhar na Imagem 3)
+        share_btn = UiSkillsButton("↗ Compartilhar")
+        share_btn.setProperty("class", "PillButton")
+        share_btn.setFixedHeight(32)
+        share_btn.clicked.connect(lambda: self._copy_link(share_btn))
+        actions_row.addWidget(share_btn)
+
+        # Botão Salvar
+        self.save_btn = UiSkillsButton()
+        self.save_btn.setProperty("class", "PillButton")
+        self.save_btn.setFixedHeight(32)
+        self._sync_save_button()
+        self.save_btn.clicked.connect(self._on_save_clicked)
+        actions_row.addWidget(self.save_btn)
+
         if post.is_video:
-            play_btn = UiSkillsButton("▶ Assistir Vídeo")
+            play_btn = UiSkillsButton("▶ Assistir")
             play_btn.setProperty("class", "PillButtonAccent")
+            play_btn.setFixedHeight(32)
             play_btn.clicked.connect(
                 lambda: open_video_stream(
                     self.post.video_url or self.post.url, self.post.permalink
@@ -886,30 +1024,39 @@ class PostCardWidget(QFrame):
             )
             actions_row.addWidget(play_btn)
 
-        self.translate_btn = UiSkillsButton()
-        self.translate_btn.setProperty("class", "TranslateButton")
-        self.translate_btn.clicked.connect(
-            lambda: self.translate_post_requested.emit(self.post, self)
-        )
-        self._sync_translate_button()
-        actions_row.addWidget(self.translate_btn)
-
-        self.save_btn = UiSkillsButton()
-        self.save_btn.setProperty("class", "PillButton")
-        self._sync_save_button()
-        self.save_btn.clicked.connect(self._on_save_clicked)
-        actions_row.addWidget(self.save_btn)
-
-        share_btn = UiSkillsButton("🔗 Copiar Link")
-        share_btn.setProperty("class", "PillButton")
-        share_btn.clicked.connect(lambda: self._copy_link(share_btn))
-        actions_row.addWidget(share_btn)
-
         actions_row.addStretch(1)
         main_layout.addLayout(actions_row)
 
         self._sync_vote_ui()
         self.set_view_mode(view_mode)
+
+    def _on_join_clicked(self) -> None:
+        self.is_joined = not self.is_joined
+        if isValid(self.btn_join):
+            self.btn_join.setText("Membro" if self.is_joined else "Unir-se")
+            self.btn_join.setProperty("joined", "true" if self.is_joined else "false")
+            self.btn_join.style().unpolish(self.btn_join)
+            self.btn_join.style().polish(self.btn_join)
+        self.toggle_join_requested.emit(self.post.subreddit)
+
+    def _show_more_menu(self) -> None:
+        menu = QMenu(self)
+        act_save = menu.addAction("★ Remover dos Salvos" if self.is_saved else "🔖 Salvar Post")
+        act_trans = menu.addAction("🔄 Alternar Tradução")
+        act_copy = menu.addAction("🔗 Copiar Link do Post")
+        act_browser = menu.addAction("🌐 Abrir no Navegador")
+        chosen = menu.exec(QCursor.pos())
+        if chosen == act_save:
+            self._on_save_clicked()
+        elif chosen == act_trans:
+            self.translate_post_requested.emit(self.post, self)
+        elif chosen == act_copy:
+            full_url = canonical_reddit_url(self.post.permalink, self.post.url)
+            clipboard = QGuiApplication.clipboard()
+            if clipboard:
+                clipboard.setText(full_url)
+        elif chosen == act_browser:
+            webbrowser.open(canonical_reddit_url(self.post.permalink, self.post.url))
 
     def _compute_reserved_media_height(self, max_w: int = 640, max_h: int = 380) -> int:
         """Calcula a altura exata do container antes do download da imagem para CLS = 0 (CR-04)."""
@@ -970,10 +1117,10 @@ class PostCardWidget(QFrame):
         if not isValid(self) or not isValid(self.translate_btn):
             return
         if self.post.show_translated:
-            self.translate_btn.setText("🔄 Ver Original")
+            self.translate_btn.setText("🔄 Original")
             self.translate_btn.setProperty("translated", "true")
         else:
-            self.translate_btn.setText("🌐 Traduzir")
+            self.translate_btn.setText("🔄 Traduzir")
             self.translate_btn.setProperty("translated", "false")
         self.translate_btn.style().unpolish(self.translate_btn)
         self.translate_btn.style().polish(self.translate_btn)
@@ -984,7 +1131,8 @@ class PostCardWidget(QFrame):
         if self.is_saved:
             self.save_btn.setText("★ Salvo")
         else:
-            self.save_btn.setText("🔖 Salvar")
+            self.save_btn.setText("🔖")
+            self.save_btn.setToolTip("Salvar postagem")
 
     def _on_vote_clicked(self, direction: int) -> None:
         if self._vote_state == direction:
@@ -1035,7 +1183,7 @@ class PostCardWidget(QFrame):
             btn.setText("✓ Copiado!")
             QTimer.singleShot(
                 2000,
-                lambda: btn.setText("🔗 Copiar Link") if isValid(btn) else None,
+                lambda: btn.setText("↗ Compartilhar") if isValid(btn) else None,
             )
 
     def _on_title_clicked(self, event) -> None:
@@ -1075,7 +1223,7 @@ class PostCardWidget(QFrame):
         if not isValid(self) or not isValid(self.translate_btn):
             return
         if loading:
-            self.translate_btn.setText("⏳ Traduzindo...")
+            self.translate_btn.setText("⏳...")
             self.translate_btn.setEnabled(False)
         else:
             self.translate_btn.setEnabled(True)
@@ -1090,6 +1238,65 @@ class PostCardWidget(QFrame):
         if isValid(self.translated_badge):
             self.translated_badge.setVisible(self.post.show_translated)
         self._sync_translate_button()
+
+
+class RecentPostItemWidget(QFrame):
+    """
+    Item da lista lateral direita 'POSTS RECENTES' (Imagem 5):
+    - Linha 1: Avatar 20px + r/Subreddit • há X
+    - Linha 2: Título em negrito secundário (#B8C5C9)
+    - Linha 3: '{score} upvotes  ·  {comments} comentários'
+    """
+
+    open_post_requested = Signal(object)  # PostItem
+    open_subreddit_requested = Signal(str)  # subreddit
+
+    def __init__(self, post: PostItem, parent: Optional[QWidget] = None) -> None:
+        super().__init__(parent)
+        self.post = post
+        self.setProperty("class", "RecentPostItem")
+        self.setCursor(QCursor(Qt.CursorShape.PointingHandCursor))
+
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(4, 10, 4, 10)
+        layout.setSpacing(4)
+
+        top_row = QHBoxLayout()
+        top_row.setSpacing(6)
+        avatar = CommunityAvatarWidget(post.subreddit, size=20)
+        top_row.addWidget(avatar)
+
+        sub_btn = QPushButton(f"r/{post.subreddit}")
+        sub_btn.setProperty("class", "SubredditLink")
+        sub_btn.setCursor(QCursor(Qt.CursorShape.PointingHandCursor))
+        sub_btn.clicked.connect(
+            lambda: self.open_subreddit_requested.emit(self.post.subreddit)
+        )
+        top_row.addWidget(sub_btn)
+
+        time_lbl = QLabel(f"• {post.relative_time}")
+        time_lbl.setProperty("role", "caption")
+        top_row.addWidget(time_lbl)
+        top_row.addStretch(1)
+        layout.addLayout(top_row)
+
+        title_lbl = QLabel(post.display_title)
+        title_lbl.setWordWrap(True)
+        title_lbl.setProperty("role", "subtitle")
+        layout.addWidget(title_lbl)
+
+        stats_lbl = QLabel(
+            f"{post.formatted_score} upvotes  ·  {post.formatted_comments} comentários"
+        )
+        stats_lbl.setProperty("role", "caption")
+        layout.addWidget(stats_lbl)
+
+    def mousePressEvent(self, event) -> None:
+        if event.button() == Qt.MouseButton.LeftButton:
+            self.open_post_requested.emit(self.post)
+            event.accept()
+            return
+        super().mousePressEvent(event)
 
 
 class CommentRowWidget(QFrame):
