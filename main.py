@@ -697,9 +697,10 @@ class RedditLinuxWindow(QMainWindow):
         center_layout.setSpacing(0)
 
         self.stack = QStackedWidget()
+        self.stack.setMaximumWidth(780)  # Largura de leitura confortável (estilo Shreddit)
         self._build_feed_page()
         self._build_detail_page()
-        center_layout.addWidget(self.stack, 1)
+        center_layout.addWidget(self.stack, 1, Qt.AlignmentFlag.AlignHCenter)
 
         self.body_splitter.addWidget(center_container)
 
@@ -809,6 +810,7 @@ class RedditLinuxWindow(QMainWindow):
 
         self.lbl_status = QLabel("")
         self.lbl_status.setProperty("role", "caption")
+        self.lbl_status.setVisible(False)
         ftb_layout.addWidget(self.lbl_status)
 
         # Alternância de Modo de Visualização estilo "日 ⌄" (Card vs Compact — Imagem 2)
@@ -818,7 +820,7 @@ class RedditLinuxWindow(QMainWindow):
         self.btn_view_card.clicked.connect(lambda: self._set_feed_view_mode("card"))
         ftb_layout.addWidget(self.btn_view_card)
 
-        self.btn_view_compact = UiSkillsButton("☰ Compacto")
+        self.btn_view_compact = UiSkillsButton("☰ Lista")
         self.btn_view_compact.setProperty("class", "SortButton")
         self.btn_view_compact.setToolTip("Visualização densa em linhas")
         self.btn_view_compact.clicked.connect(
@@ -878,6 +880,7 @@ class RedditLinuxWindow(QMainWindow):
 
         self.feed_scroll = QScrollArea()
         self.feed_scroll.setWidgetResizable(True)
+        self.feed_scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
         self.feed_list_container = QWidget()
         self.feed_list_layout = QVBoxLayout(self.feed_list_container)
         self.feed_list_layout.setContentsMargins(0, 0, 4, 16)

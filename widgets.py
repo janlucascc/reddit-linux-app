@@ -793,8 +793,8 @@ class PostCardWidget(QFrame):
         self._base_score: int = post.score - self._vote_state
 
         main_layout = QVBoxLayout(self)
-        main_layout.setContentsMargins(16, 12, 16, 12)
-        main_layout.setSpacing(8)
+        main_layout.setContentsMargins(16, 14, 16, 14)
+        main_layout.setSpacing(10)
 
         # 1. Cabeçalho Superior (Imagens 2 e 3): Avatar 24px + r/Subreddit • há X h ... [Unir-se] [•••]
         header_row = QHBoxLayout()
@@ -829,7 +829,7 @@ class PostCardWidget(QFrame):
         # Botão de menu "•••" (Imagem 2 e 3)
         self.btn_more = UiSkillsButton("•••")
         self.btn_more.setProperty("class", "PillButton")
-        self.btn_more.setFixedSize(32, 28)
+        self.btn_more.setFixedSize(48, 30)
         self.btn_more.setToolTip("Mais opções")
         self.btn_more.clicked.connect(self._show_more_menu)
         header_row.addWidget(self.btn_more)

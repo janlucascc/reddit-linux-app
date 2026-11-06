@@ -302,11 +302,46 @@ def build_stylesheet(dark: bool = True) -> str:
     }}
     QLabel[role="body_preview"] {{
         color: {p['text_secondary']};
-        font-size: 13px;
+        font-size: 15px;
     }}
     QLabel[role="comment_body"] {{
         color: {p['text_primary']};
+        font-size: 15px;
+    }}
+
+    /* Hierarquia tipográfica estilo Shreddit (títulos 20px bold, corpo 15px, meta 13px) */
+    QLabel[role="card_title"] {{
+        color: {p['text_primary']};
+        font-size: 20px;
+        font-weight: 700;
+    }}
+    QLabel[role="card_title"][visited="true"] {{
+        color: {p['text_title_visited']};
+        font-weight: 600;
+    }}
+    QLabel[role="hero"] {{
+        color: {p['text_primary']};
+        font-size: 24px;
+        font-weight: 800;
+    }}
+    QLabel[role="title"] {{
+        color: {p['text_primary']};
+        font-size: 17px;
+        font-weight: 700;
+    }}
+    QLabel[role="subtitle"] {{
+        color: {p['text_primary']};
+        font-size: 14px;
+        font-weight: 600;
+    }}
+    QLabel[role="caption"] {{
+        color: {p['text_muted']};
         font-size: 13px;
+    }}
+    QLabel[role="status_ok"] {{
+        color: {p['badge_mod']};
+        font-size: 13px;
+        font-weight: 700;
     }}
     QLabel[role="karma"] {{
         color: {p['brand_accent']};
@@ -513,7 +548,7 @@ def build_stylesheet(dark: bool = True) -> str:
 
     QLabel#SidebarSectionTitle {{
         color: {p['text_muted']};
-        font-size: 11px;
+        font-size: 12px;
         font-weight: 800;
         letter-spacing: 0.8px;
         padding: 10px 10px 4px 10px;
@@ -573,7 +608,7 @@ def build_stylesheet(dark: bool = True) -> str:
         border-radius: 10px;
         text-align: left;
         padding: 10px 12px;
-        font-size: 14px;
+        font-size: 15px;
         font-weight: 500;
     }}
     QPushButton.NavButton[collapsed="true"] {{
@@ -668,7 +703,7 @@ def build_stylesheet(dark: bool = True) -> str:
         border: none;
         border-bottom: 2px solid transparent;
         padding: 6px 10px;
-        font-size: 14px;
+        font-size: 15px;
         font-weight: 600;
     }}
     QPushButton#FeedTabButton:hover {{
@@ -686,8 +721,8 @@ def build_stylesheet(dark: bool = True) -> str:
         color: {join_fg};
         border: none;
         border-radius: 14px;
-        padding: 4px 14px;
-        font-size: 12px;
+        padding: 5px 16px;
+        font-size: 13px;
         font-weight: 800;
     }}
     QPushButton#JoinPillButton:hover {{
@@ -714,7 +749,7 @@ def build_stylesheet(dark: bool = True) -> str:
         border: none;
         border-radius: 15px;
         font-weight: 800;
-        font-size: 13px;
+        font-size: 16px;
         padding: 3px;
     }}
     QPushButton#VoteButton:hover {{
@@ -731,7 +766,7 @@ def build_stylesheet(dark: bool = True) -> str:
     QLabel#VoteScore {{
         color: {p['text_primary']};
         font-weight: 700;
-        font-size: 12px;
+        font-size: 14px;
     }}
     QLabel#VoteScore[voted="up"] {{
         color: {p['vote_upvote']};
@@ -748,8 +783,8 @@ def build_stylesheet(dark: bool = True) -> str:
         color: {p['text_primary']};
         border: 1px solid {p['border_subtle']};
         border-radius: 16px;
-        padding: 6px 13px;
-        font-size: 12px;
+        padding: 6px 14px;
+        font-size: 13px;
         font-weight: 600;
     }}
     QPushButton.PillButton:hover {{
@@ -785,7 +820,7 @@ def build_stylesheet(dark: bool = True) -> str:
         color: {p['text_primary']};
         border: none;
         font-weight: 700;
-        font-size: 12px;
+        font-size: 14px;
         padding: 0px;
     }}
     QPushButton.SubredditLink:hover {{
@@ -798,8 +833,8 @@ def build_stylesheet(dark: bool = True) -> str:
         color: {p['text_primary']};
         border: 1px solid {p['border_default']};
         border-radius: 16px;
-        padding: 6px 12px;
-        font-size: 12px;
+        padding: 6px 14px;
+        font-size: 13px;
         font-weight: 600;
     }}
     QPushButton.TranslateButton:hover {{
@@ -818,8 +853,8 @@ def build_stylesheet(dark: bool = True) -> str:
         color: {p['text_secondary']};
         border: 1px solid transparent;
         border-radius: 16px;
-        padding: 6px 13px;
-        font-size: 12px;
+        padding: 6px 9px;
+        font-size: 13px;
         font-weight: 700;
     }}
     QPushButton.SortButton:hover {{
@@ -840,8 +875,8 @@ def build_stylesheet(dark: bool = True) -> str:
     QLabel.BadgeVideo, QLabel.BadgeNSFW, QLabel.BadgeSpoiler, QLabel.BadgeOC,
     QLabel.BadgeFlair, QLabel.BadgeTranslated {{
         border-radius: 6px;
-        padding: 2px 7px;
-        font-size: 11px;
+        padding: 3px 8px;
+        font-size: 12px;
         font-weight: 700;
     }}
     QLabel#PostBadge[variant="pinned"], QLabel.BadgeStickied {{
