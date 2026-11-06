@@ -1,0 +1,199 @@
+================================================================================
+RELATÓRIO DE AUDITORIA E BUGS DOCUMENTADOS - REDDIT LINUX DESKTOP
+Data da Análise: 06/11/2026
+Comando de Gatilho: /analisar
+Diretório do Projeto: /home/janlucas/.gemini/antigravity/scratch/reddit-linux-app
+================================================================================
+
+[BUG-001] - Status: CORRIGIDO (06/11/2026)
+Título: Falha de Objeto C++ Deletado (RuntimeError) em Callbacks Assíncronos
+Arquivo: main.py e widgets.py
+Gravidade: ALTA
+Correção Aplicada:
+  Adicionada verificação `shiboken6.isValid()` em todos os widgets e callbacks
+  assíncronos (`set_preview_image`, `set_translating_state`, `set_loading`,
+  `refresh_translation_ui`, `_run_async`) antes de manipular objetos Qt.
+
+--------------------------------------------------------------------------------
+
+[BUG-002] - Status: CORRIGIDO (06/11/2026)
+Título: Condição de Corrida (Race Condition) e Respostas Fora de Ordem em Troca Rápida de Feeds
+Arquivo: main.py
+Gravidade: ALTA
+Correção Aplicada:
+  Implementado contador monotônico `self._feed_request_id` incrementado a cada
+  troca de subreddit, busca ou visualização de salvos, descartando callbacks
+  de requisições obsoletas (`if req_id != self._feed_request_id: return`).
+
+--------------------------------------------------------------------------------
+
+[BUG-003] - Status: CORRIGIDO (06/11/2026)
+Título: Bypass do Cookie Jar na Sessão OAuth do Reddit
+Arquivo: reddit_api.py
+Gravidade: ALTA
+Correção Aplicada:
+  Substituído `requests.get()` avulso por `self._session.get()` em `_oauth_get()`,
+  preservando integralmente os cookies `loid`, `session_tracker` e `token_v2`.
+
+--------------------------------------------------------------------------------
+
+[BUG-004] - Status: CORRIGIDO (06/11/2026)
+Título: Risco de Erro HTTP 414 (URI Too Long) em Textos Longos na Tradução
+Arquivo: translator.py
+Gravidade: MÉDIA
+Correção Aplicada:
+  Substituída a chamada HTTP GET por `self._session.post(..., data={"q": query_text})`
+  enviando o texto no corpo da requisição e suportando até 8.000 caracteres sem
+  limite de URL.
+
+--------------------------------------------------------------------------------
+
+[BUG-005] - Status: CORRIGIDO (06/11/2026)
+Título: Deslocamento Incorreto de Layout no Botão "Carregar Mais" Devido ao deleteLater()
+Arquivo: main.py
+Gravidade: MÉDIA
+Correção Aplicada:
+  O botão `LoadMoreButton` agora é removido sincronamente do layout via
+  `self.feed_list_layout.removeWidget(w)` e `w.setParent(None)` antes de calcular
+  `insert_pos` e chamar `w.deleteLater()`.
+
+--------------------------------------------------------------------------------
+
+[BUG-006] - Status: CORRIGIDO (06/11/2026)
+Título: Rejeição de Feeds de Comentários RSS por Rate Limit (HTTP 429) Sem Exponential Backoff
+Arquivo: reddit_api.py
+Gravidade: MÉDIA
+Correção Aplicada:
+  Implementado loop de até 3 tentativas com backoff exponencial (`0.8 * (2 ** attempt)`)
+  e renovação forçada de sessão em caso de HTTP 429 ou erros 5xx.
+
+--------------------------------------------------------------------------------
+
+[BUG-007] - Status: CORRIGIDO (06/11/2026)
+Título: Botão "Copiar Link" Não Restaura o Texto Original Após o Clique
+Arquivo: widgets.py
+Gravidade: BAIXA
+Correção Aplicada:
+  Adicionado `QTimer.singleShot(2000, ...)` protegido por `isValid(btn)` para
+  restaurar o texto `"🔗 Copiar Link"` após 2 segundos.
+
+--------------------------------------------------------------------------------
+
+[BUG-008] - Status: CORRIGIDO (06/11/2026)
+Título: Falta de Escrita Atômica na Persistência de Configurações e Posts Salvos
+Arquivo: main.py
+Gravidade: BAIXA
+Correção Aplicada:
+  `_save_config()` agora grava em `.json.tmp`, executa `flush()` + `os.fsync()`
+  e substitui o arquivo final atomicamente via `os.replace()`.
+
+--------------------------------------------------------------------------------
+
+[BUG-009] - Status: CORRIGIDO (06/11/2026)
+Título: Condição de Corrida em Comentários na Abertura Rápida de Postagens Diferentes
+Arquivo: main.py
+Gravidade: ALTA
+Correção Aplicada:
+  Implementado contador `self._detail_request_id` e verificação de igualdade
+  `self.current_post.id == post.id` nos callbacks de comentários e galeria.
+
+--------------------------------------------------------------------------------
+
+[BUG-010] - Status: CORRIGIDO (06/11/2026)
+Título: Falta de Sanitização e Validação em Nomes de Subreddits Favoritos
+Arquivo: main.py e reddit_api.py
+Gravidade: MÉDIA
+Correção Aplicada:
+  Adicionada validação por regex `is_valid_subreddit_name` (`^[A-Za-z0-9_]{2,21}$`),
+  codificação `urllib.parse.quote` nas rotas de API e botão `✕` ao lado de cada
+  favorito na barra lateral para remoção direta.
+
+--------------------------------------------------------------------------------
+
+[BUG-011] - Status: CORRIGIDO (06/11/2026)
+Título: Crescimento Indefinido de Memória (Memory Leak) no Cache de Tradução em Lote
+Arquivo: translator.py
+Gravidade: MÉDIA
+Correção Aplicada:
+  Substituído o dicionário simples por `OrderedDict` com política LRU centralizada
+  em `_put_cache_locked()`, respeitando o teto de `MAX_CACHE_ENTRIES = 4000` tanto
+  em `translate()` quanto em `translate_batch()`.
+
+--------------------------------------------------------------------------------
+
+[BUG-012] - Status: CORRIGIDO (06/11/2026)
+Título: Ausência de Suporte a Reprodução para Vídeos Nativos do Reddit (v.redd.it)
+Arquivo: widgets.py, reddit_api.py e main.py
+Gravidade: MÉDIA
+Correção Aplicada:
+  Extraído `video_url` (`fallback_url` / `hls_url`) no parser de posts, adicionada
+  tag `"🎬 Vídeo"`, botão `"▶ Assistir Vídeo"` nos cards e na página de detalhes,
+  e função `open_video_stream()` compatível com `mpv`, `vlc`, `celluloid`, `totem`
+  ou navegador.
+
+--------------------------------------------------------------------------------
+
+[BUG-013] - Status: CORRIGIDO (06/11/2026)
+Título: Falta de Encerramento Limpo (Graceful Shutdown) ao Fechar a Janela
+Arquivo: main.py
+Gravidade: BAIXA
+Correção Aplicada:
+  Implementado `closeEvent()` sinalizando `self._is_closing = True`, invalidando
+  IDs de requisições em voo, limpando a fila do `QThreadPool`, salvando a
+  configuração atomicamente e aguardando `waitForDone(500)`.
+
+--------------------------------------------------------------------------------
+
+[BUG-014] - Status: CORRIGIDO (06/11/2026)
+Título: Dessincronização e Falha Silenciosa de Parsing XML Atom
+Arquivo: reddit_api.py
+Gravidade: MÉDIA
+Correção Aplicada:
+  `_parse_atom_posts()` agora lança `RuntimeError` descritivo em caso de XML
+  inválido/corrompido e ignora entradas de comunidades (`t5_...`), processando
+  apenas postagens (`t3_...`).
+
+--------------------------------------------------------------------------------
+
+[BUG-015] - Status: CORRIGIDO (06/11/2026)
+Título: Deformação de Proporção em Imagens Panorâmicas ou Infográficos Verticais Extremos
+Arquivo: widgets.py
+Gravidade: MÉDIA
+Correção Aplicada:
+  `create_rounded_pixmap()` agora preserva a largura máxima e recorta o topo em
+  imagens verticais (`aspect > 2.0`), e `ImageViewerDialog` ganhou controles
+  interativos de zoom (`🔍 −`, `↔ Ajustar Largura`, `100%`, `🔍 +`) com ajuste
+  automático pela largura e `WA_DeleteOnClose`.
+
+--------------------------------------------------------------------------------
+
+[BUG-016] - Status: CORRIGIDO (06/11/2026)
+Título: Falta de Paginação nos Resultados de Busca (search_posts)
+Arquivo: reddit_api.py e main.py
+Gravidade: BAIXA
+Correção Aplicada:
+  `search_posts()` agora retorna `(posts, next_cursor)` usando o `t3_<id>` do
+  último item e aceita o parâmetro `after`, habilitando o botão `"⬇ Carregar mais postagens"`
+  também nos resultados de pesquisa.
+
+--------------------------------------------------------------------------------
+
+[BUG-017] - Status: CORRIGIDO (06/11/2026)
+Título: Inconsistência Visual e Texto Preto/Invisível no Tema Escuro
+Arquivo: ui_theme.py, widgets.py e main.py
+Gravidade: ALTA
+Correção Aplicada:
+  1. Criada a função `build_qt_palette()` mapeando todas as funções de cor nativas do Qt
+     (`Window`, `WindowText`, `Base`, `Text`, `Button`, `ButtonText`, `ToolTip`, `Highlight`)
+     e vinculada ao `QApplication.setPalette()` dinamicamente em `_apply_theme()`,
+     eliminando o vazamento da paleta clara padrão do Linux (`#faf9f8` / `#000000`).
+  2. Substituídos os estilos inline com texto sem cor definida em `brand_btn` ("reddit")
+     e `btn_sub` ("r/comunidade") por classes estilizadas (`QPushButton#BrandButton`
+     e `QPushButton.SubredditLink`) com alto contraste garantido (`#F2F4F5` / `#FF4500`).
+  3. Corrigido o campo de entrada `add_sub_input`, menus de contexto e tooltips
+     para adotarem o fundo escuro `#1A282D` e bordas `#24373E`.
+  4. Redefinido `"dark_mode": true` no arquivo de configuração do usuário.
+
+================================================================================
+Fim do Relatório. Novas análises serão anexadas sequencialmente via /analisar.
+================================================================================

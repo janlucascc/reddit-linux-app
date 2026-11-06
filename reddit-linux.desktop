@@ -1,0 +1,10 @@
+[Desktop Entry]
+Name=Reddit Linux Desktop
+Comment=Cliente nativo e otimizado do Reddit para Linux com tradução integrada
+Exec=reddit-linux
+Icon=reddit-linux
+Terminal=false
+Type=Application
+Categories=Network;News;Feed;Qt;
+StartupNotify=true
+StartupWMClass=reddit-linux-desktop
