@@ -87,6 +87,8 @@ from widgets import (
     RedditLogoWidget,
     SnoovatarStatusWidget,
     UiSkillsButton,
+    UserAvatarWidget,
+    VideoPlayerDialog,
     canonical_reddit_url,
     create_reddit_vector_icon,
     create_rounded_pixmap,
@@ -973,6 +975,9 @@ class RedditLinuxWindow(QMainWindow):
 
         self.detail_scroll = QScrollArea()
         self.detail_scroll.setWidgetResizable(True)
+        self.detail_scroll.setHorizontalScrollBarPolicy(
+            Qt.ScrollBarPolicy.ScrollBarAlwaysOff
+        )
         detail_content = QWidget()
         self.detail_content_layout = QVBoxLayout(detail_content)
         self.detail_content_layout.setContentsMargins(0, 0, 4, 20)

@@ -9,6 +9,7 @@ Implementa:
 """
 
 from __future__ import annotations
+import re
 import shutil
 import subprocess
 from typing import Callable, Dict, List, Optional
@@ -725,6 +726,71 @@ class CommunityAvatarWidget(QWidget):
         painter.end()
 
 
+class UserAvatarWidget(QWidget):
+    """
+    Avatar circular colorido com silhueta minimalista de usuário/Snoo (CR-03).
+    Gera cor determinística estável a partir do nome do autor.
+    """
+
+    clicked = Signal()
+
+    def __init__(
+        self, author: str, size: int = 24, parent: Optional[QWidget] = None
+    ) -> None:
+        super().__init__(parent)
+        self._author = (author or "reddit").strip()
+        self._color = QColor(color_for_name(self._author))
+        self.setFixedSize(size, size)
+        self.setCursor(QCursor(Qt.CursorShape.PointingHandCursor))
+        ThemeManager.instance().theme_changed.connect(self._on_theme_changed)
+
+    def _on_theme_changed(self, _mode: str) -> None:
+        if isValid(self):
+            self.update()
+
+    def set_author(self, author: str) -> None:
+        self._author = (author or "reddit").strip()
+        self._color = QColor(color_for_name(self._author))
+        if isValid(self):
+            self.update()
+
+    def mousePressEvent(self, event) -> None:
+        if event.button() == Qt.MouseButton.LeftButton:
+            self.clicked.emit()
+            event.accept()
+            return
+        super().mousePressEvent(event)
+
+    def paintEvent(self, event) -> None:
+        tokens = ThemeManager.instance().tokens
+        painter = QPainter(self)
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing, True)
+        w = float(self.width())
+        h = float(self.height())
+
+        # Fundo circular com cor própria do usuário
+        painter.setPen(Qt.PenStyle.NoPen)
+        painter.setBrush(self._color)
+        painter.drawEllipse(QRectF(0, 0, w, h))
+
+        # Silhueta estilizada de usuário em branco
+        fg = QColor(tokens.text_inverse)
+        painter.setBrush(fg)
+
+        head_r = w * 0.22
+        painter.drawEllipse(
+            QRectF(w * 0.50 - head_r, h * 0.16, head_r * 2, head_r * 2)
+        )
+
+        body_path = QPainterPath()
+        body_path.moveTo(w * 0.20, h * 0.90)
+        body_path.quadTo(w * 0.22, h * 0.58, w * 0.50, h * 0.58)
+        body_path.quadTo(w * 0.78, h * 0.58, w * 0.80, h * 0.90)
+        body_path.closeSubpath()
+        painter.drawPath(body_path)
+        painter.end()
+
+
 class SnoovatarStatusWidget(QWidget):
     """
     Avatar circular dourado do usuário (Snoovatar) com ponto verde de status online
@@ -1117,6 +1183,65 @@ class ImageViewerDialog(QDialog):
             self.img_lbl.setPixmap(pix)
 
 
+class VideoPlayerDialog(QDialog):
+    """
+    Lightbox modal para reprodução de vídeo nativo dentro do aplicativo (CR-06):
+    - Permite assistir ao vídeo diretamente com áudio e controles integrados
+    - Não descarrega nem recarrega o feed, mantendo a posição de rolagem estável
+    - Tecla ESC ou botão fechar encerra o player e restaura o foco
+    """
+
+    def __init__(
+        self,
+        post: PostItem,
+        parent: Optional[QWidget] = None,
+    ) -> None:
+        super().__init__(parent)
+        self.setAttribute(Qt.WidgetAttribute.WA_DeleteOnClose, True)
+        self.setWindowTitle(post.display_title[:80] or "Reprodutor de Vídeo Reddit")
+        self.resize(880, 660)
+        self.setModal(True)
+
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(16, 14, 16, 14)
+        layout.setSpacing(10)
+
+        head_row = QHBoxLayout()
+        head_row.setSpacing(8)
+
+        lbl_sub = QLabel(f"r/{post.subreddit} • Postado por u/{post.author}")
+        lbl_sub.setProperty("role", "caption")
+        head_row.addWidget(lbl_sub)
+
+        head_row.addStretch(1)
+
+        btn_close = UiSkillsButton("✕ Fechar")
+        btn_close.setProperty("class", "PillButton")
+        btn_close.clicked.connect(self.close)
+        head_row.addWidget(btn_close)
+        layout.addLayout(head_row)
+
+        lbl_title = QLabel(post.display_title)
+        lbl_title.setWordWrap(True)
+        lbl_title.setProperty("role", "subtitle")
+        layout.addWidget(lbl_title)
+
+        self.video_player = EmbeddedVideoWidget(self)
+        layout.addWidget(self.video_player, 1)
+
+        self.video_player.load_video(
+            post.video_url,
+            dash_url=post.video_dash_url,
+            hls_url=post.video_hls_url,
+            permalink=post.permalink,
+        )
+
+    def closeEvent(self, event) -> None:
+        if hasattr(self, "video_player"):
+            self.video_player.stop()
+        super().closeEvent(event)
+
+
 class PostCardWidget(QFrame):
     """
     Card de postagem inspirado na arquitetura real do Reddit moderno (Shreddit — Imagens 2 e 3):
@@ -1388,11 +1513,7 @@ class PostCardWidget(QFrame):
             play_btn = UiSkillsButton("▶ Assistir")
             play_btn.setProperty("class", "PillButtonAccent")
             play_btn.setFixedHeight(32)
-            play_btn.clicked.connect(
-                lambda: open_video_stream(
-                    self.post.video_url or self.post.url, self.post.permalink
-                )
-            )
+            play_btn.clicked.connect(self._open_in_app_video_player)
             actions_row.addWidget(play_btn)
 
         actions_row.addStretch(1)
@@ -1568,7 +1689,7 @@ class PostCardWidget(QFrame):
     def _on_image_clicked(self, event) -> None:
         if event.button() == Qt.MouseButton.LeftButton:
             if self.post.is_video:
-                self._emit_open_post()
+                self._open_in_app_video_player()
             elif len(self.post.gallery_images) > 1 or not self._raw_image_bytes:
                 self._emit_open_post()
             else:
@@ -1579,6 +1700,10 @@ class PostCardWidget(QFrame):
                     self.window(),
                 )
                 dlg.exec()
+
+    def _open_in_app_video_player(self) -> None:
+        dlg = VideoPlayerDialog(self.post, parent=self.window())
+        dlg.exec()
 
     def set_preview_image(self, raw_bytes: bytes) -> None:
         """Atualiza a imagem mantendo altura estável (CR-04) e proteção Shiboken (BUG-001)."""
@@ -1672,6 +1797,28 @@ class RecentPostItemWidget(QFrame):
         super().mousePressEvent(event)
 
 
+def make_wrap_friendly_text(text: str) -> str:
+    """Insere pontos de quebra suaves (zero-width space) em URLs e tokens longos sem quebrar o texto."""
+    if not text:
+        return ""
+
+    def _break_token(match: re.Match) -> str:
+        token = match.group(0)
+        if len(token) > 28 and (
+            "http://" in token
+            or "https://" in token
+            or "redd.it" in token
+            or "/" in token
+            or "?" in token
+        ):
+            return re.sub(r"([/?&=_\-#])", r"\g<1>" + "\u200b", token)
+        elif len(token) > 35:
+            return re.sub(r"(.{25})", r"\g<1>" + "\u200b", token)
+        return token
+
+    return re.sub(r"\S+", _break_token, text)
+
+
 class CommentRowWidget(QFrame):
     """
     Linha de comentário otimizada para árvore flat (CR-05):
@@ -1701,6 +1848,7 @@ class CommentRowWidget(QFrame):
         self._is_folded: bool = False
         self._hover_guide: bool = False
         self.setProperty("class", "CommentCard")
+        self.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Minimum)
         self.setMouseTracking(True)
 
         if comment.likes is True:
@@ -1720,20 +1868,27 @@ class CommentRowWidget(QFrame):
 
         # 1. Cabeçalho do Comentário
         top_row = QHBoxLayout()
-        top_row.setSpacing(6)
+        top_row.setSpacing(8)
 
-        self.btn_fold = QPushButton("[−]")
-        self.btn_fold.setProperty("class", "PillButton")
-        self.btn_fold.setFixedSize(28, 22)
-        self.btn_fold.setCursor(QCursor(Qt.CursorShape.PointingHandCursor))
-        self.btn_fold.setToolTip("Recolher/Expandir subárvore de comentários")
-        self.btn_fold.clicked.connect(
+        # Foto de Perfil do Usuário com avatar colorido e silhueta Snoo
+        self.user_avatar = UserAvatarWidget(comment.author, size=24)
+        self.user_avatar.setToolTip(
+            f"u/{comment.author} • Clique para recolher/expandir discussão"
+        )
+        self.user_avatar.clicked.connect(
             lambda: self.toggle_fold_requested.emit(self.comment.id)
         )
-        top_row.addWidget(self.btn_fold)
+        top_row.addWidget(self.user_avatar)
 
         self.author_lbl = QLabel(f"u/{comment.author}")
         self.author_lbl.setProperty("role", "subtitle")
+        self.author_lbl.setCursor(QCursor(Qt.CursorShape.PointingHandCursor))
+        self.author_lbl.setToolTip(f"u/{comment.author} • Clique para recolher/expandir discussão")
+        self.author_lbl.mousePressEvent = (
+            lambda e: self.toggle_fold_requested.emit(self.comment.id)
+            if e.button() == Qt.MouseButton.LeftButton
+            else None
+        )
         top_row.addWidget(self.author_lbl)
 
         if comment.is_submitter:
@@ -1769,11 +1924,6 @@ class CommentRowWidget(QFrame):
         self.folded_summary_lbl.setVisible(False)
         top_row.addWidget(self.folded_summary_lbl)
 
-        self.tr_badge = QLabel("🌐 Traduzido")
-        self.tr_badge.setProperty("class", "BadgeTranslated")
-        self.tr_badge.setVisible(comment.show_translated)
-        top_row.addWidget(self.tr_badge)
-
         top_row.addStretch(1)
 
         self.tr_btn = UiSkillsButton()
@@ -1789,15 +1939,23 @@ class CommentRowWidget(QFrame):
 
         # 2. Corpo e Ações (ocultados quando o comentário está colapsado)
         self.body_container = QWidget()
+        self.body_container.setSizePolicy(
+            QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Minimum
+        )
         body_layout = QVBoxLayout(self.body_container)
         body_layout.setContentsMargins(0, 2, 0, 0)
         body_layout.setSpacing(6)
 
-        self.body_lbl = QLabel(comment.display_body)
+        self.body_lbl = QLabel(make_wrap_friendly_text(comment.display_body))
         self.body_lbl.setWordWrap(True)
+        self.body_lbl.setSizePolicy(
+            QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Preferred
+        )
         self.body_lbl.setTextInteractionFlags(
             Qt.TextInteractionFlag.TextSelectableByMouse
+            | Qt.TextInteractionFlag.LinksAccessibleByMouse
         )
+        self.body_lbl.setOpenExternalLinks(True)
         self.body_lbl.setProperty("role", "comment_body")
         body_layout.addWidget(self.body_lbl)
 
@@ -1882,7 +2040,7 @@ class CommentRowWidget(QFrame):
 
     def set_folded(self, folded: bool, hidden_count: int = 0) -> None:
         self._is_folded = folded
-        if isValid(self.btn_fold):
+        if hasattr(self, "btn_fold") and isValid(self.btn_fold):
             self.btn_fold.setText("[+]" if folded else "[−]")
         if isValid(self.body_container):
             self.body_container.setHidden(folded)
@@ -2030,9 +2188,7 @@ class CommentRowWidget(QFrame):
         if not isValid(self):
             return
         if isValid(self.body_lbl):
-            self.body_lbl.setText(self.comment.display_body)
-        if isValid(self.tr_badge):
-            self.tr_badge.setVisible(self.comment.show_translated)
+            self.body_lbl.setText(make_wrap_friendly_text(self.comment.display_body))
         self._sync_btn()
 
 
