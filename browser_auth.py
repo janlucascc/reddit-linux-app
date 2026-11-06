@@ -1,18 +1,23 @@
 """
 Serviço e diálogo de autenticação do Reddit via Navegador Padrão do Usuário.
-Abre uma página de login local no navegador padrão (Brave, Chrome, Firefox)
-e captura o retorno via OAuth loopback ou sessão.
+Detecta e sincroniza automaticamente a sessão do Reddit aberta no navegador (Brave, Chrome, Firefox),
+ou orienta o login na tela oficial sem exigir criação de apps de desenvolvedor.
 """
 
 from __future__ import annotations
+import glob
+import hashlib
 import http.server
 import json
 import os
 from pathlib import Path
-import secrets
+import shutil
+import sqlite3
+import subprocess
 import threading
-from typing import Any, Dict, Optional
-from urllib.parse import parse_qs, quote, urlparse
+import time
+from typing import Any, Dict, Optional, Tuple
+from urllib.parse import parse_qs, urlparse
 import webbrowser
 
 from PySide6.QtCore import QObject, Qt, QTimer, Signal
@@ -27,17 +32,178 @@ from PySide6.QtWidgets import (
     QVBoxLayout,
     QWidget,
 )
+from cryptography.hazmat.backends import default_backend
+from cryptography.hazmat.primitives.ciphers import Cipher, algorithms, modes
 import requests
 
 from widgets import RedditLogoWidget
 
 
-CONFIG_PATH = Path.home() / ".config" / "reddit-linux-app" / "config.json"
 SESSION_FILE = Path.home() / ".config" / "reddit-linux-app" / "session.json"
 USER_AGENT = "linux:br.janlucas.redditdesktop:v1.1.0 (by /u/janlucas)"
 
-# Client ID padrão para installed app (ou configurável pelo usuário)
-DEFAULT_CLIENT_ID = "v_b9c7HdQoA1Zg"  # Substituível pelo usuário na interface web
+
+def _get_keyring_password(app_name: str) -> bytes:
+    """Busca a chave mestra de criptografia do navegador no Secret Service (GNOME Keyring)."""
+    candidates = [app_name, app_name.lower(), app_name.capitalize(), "chromium", "chrome"]
+    for cand in candidates:
+        try:
+            out = subprocess.check_output(
+                ["secret-tool", "lookup", "application", cand],
+                stderr=subprocess.DEVNULL,
+            )
+            val = out.strip()
+            if val:
+                return val
+        except Exception:
+            pass
+    return b"peanuts"
+
+
+def _extract_chromium_cookies(db_path: Path, app_name: str) -> Dict[str, str]:
+    """Extrai e descriptografa cookies do Reddit de navegadores baseados em Chromium."""
+    if not db_path.exists():
+        return {}
+
+    tmp_path = Path("/tmp") / f"reddit_cookies_{app_name}_{os.getpid()}_{time.time_ns()}.sqlite"
+    try:
+        shutil.copy(db_path, tmp_path)
+        conn = sqlite3.connect(tmp_path)
+        c = conn.cursor()
+        c.execute("""
+            SELECT name, encrypted_value 
+            FROM cookies 
+            WHERE host_key LIKE '%reddit.com%' AND name IN ('token_v2', 'reddit_session', 'loid')
+        """)
+        rows = c.fetchall()
+        conn.close()
+    except Exception:
+        return {}
+    finally:
+        if tmp_path.exists():
+            try:
+                tmp_path.unlink()
+            except Exception:
+                pass
+
+    if not rows:
+        return {}
+
+    password = _get_keyring_password(app_name)
+    salt = b"saltysalt"
+    key = hashlib.pbkdf2_hmac("sha1", password, salt, 1, 16)
+    iv = b" " * 16
+
+    cookies: Dict[str, str] = {}
+    for name, enc in rows:
+        if not enc or len(enc) < 4:
+            continue
+        try:
+            is_v11 = enc.startswith(b"v11")
+            raw_payload = enc[3:]
+            cipher = Cipher(algorithms.AES(key), modes.CBC(iv), backend=default_backend())
+            decryptor = cipher.decryptor()
+            dec = decryptor.update(raw_payload) + decryptor.finalize()
+            pad = dec[-1]
+            val_bytes = dec[:-pad]
+            if is_v11:
+                val_bytes = val_bytes[32:]  # Descarta cabeçalho HMAC de 32 bytes do v11
+            val = val_bytes.decode("utf-8", errors="ignore").strip()
+            if val:
+                cookies[name] = val
+        except Exception:
+            pass
+
+    return cookies
+
+
+def _extract_firefox_cookies() -> Dict[str, str]:
+    """Extrai cookies do Firefox (armazenados sem criptografia em cookies.sqlite)."""
+    ff_profiles = list(Path.home().glob(".mozilla/firefox/*.default*/cookies.sqlite"))
+    for db_path in ff_profiles:
+        if not db_path.exists():
+            continue
+        tmp_path = Path("/tmp") / f"ff_cookies_{os.getpid()}_{time.time_ns()}.sqlite"
+        try:
+            shutil.copy(db_path, tmp_path)
+            conn = sqlite3.connect(tmp_path)
+            c = conn.cursor()
+            c.execute("""
+                SELECT name, value 
+                FROM moz_cookies 
+                WHERE host LIKE '%reddit.com%' AND name IN ('token_v2', 'reddit_session', 'loid')
+            """)
+            rows = c.fetchall()
+            conn.close()
+            cookies = {r[0]: r[1] for r in rows if r[1]}
+            if "token_v2" in cookies or "reddit_session" in cookies:
+                return cookies
+        except Exception:
+            pass
+        finally:
+            if tmp_path.exists():
+                try:
+                    tmp_path.unlink()
+                except Exception:
+                    pass
+    return {}
+
+
+def detect_browser_reddit_session() -> Tuple[Optional[Dict[str, str]], Optional[Dict[str, Any]]]:
+    """
+    Tenta detectar automaticamente uma sessão ativa do Reddit nos navegadores instalados
+    (Brave, Chrome, Chromium ou Firefox) e valida com a API do Reddit.
+    Retorna (cookies, user_info) ou (None, None).
+    """
+    browser_targets = [
+        (Path.home() / ".config/BraveSoftware/Brave-Browser/Default/Cookies", "brave"),
+        (Path.home() / ".config/google-chrome/Default/Cookies", "chrome"),
+        (Path.home() / ".config/chromium/Default/Cookies", "chromium"),
+    ]
+
+    for db_path, app_name in browser_targets:
+        cookies = _extract_chromium_cookies(db_path, app_name)
+        if cookies and ("token_v2" in cookies or "reddit_session" in cookies):
+            user_info = verify_reddit_token(cookies.get("token_v2"))
+            if user_info:
+                return cookies, user_info
+
+    # Tenta Firefox
+    ff_cookies = _extract_firefox_cookies()
+    if ff_cookies and ("token_v2" in ff_cookies or "reddit_session" in ff_cookies):
+        user_info = verify_reddit_token(ff_cookies.get("token_v2"))
+        if user_info:
+            return ff_cookies, user_info
+
+    return None, None
+
+
+def verify_reddit_token(token: Optional[str]) -> Optional[Dict[str, Any]]:
+    """Verifica se um token_v2 é válido chamando o endpoint do usuário no Reddit."""
+    if not token:
+        return None
+    try:
+        resp = requests.get(
+            "https://oauth.reddit.com/api/v1/me",
+            headers={
+                "User-Agent": USER_AGENT,
+                "Authorization": f"Bearer {token}",
+            },
+            timeout=8,
+        )
+        if resp.status_code == 200:
+            data = resp.json()
+            if data and data.get("name"):
+                return {
+                    "username": str(data["name"]),
+                    "karma": int(data.get("total_karma", 0) or 0),
+                    "comment_karma": int(data.get("comment_karma", 0) or 0),
+                    "link_karma": int(data.get("link_karma", 0) or 0),
+                    "icon": str(data.get("icon_img") or data.get("snoovatar_img") or ""),
+                }
+    except Exception:
+        pass
+    return None
 
 
 class AuthSignals(QObject):
@@ -46,55 +212,37 @@ class AuthSignals(QObject):
 
 
 class BrowserAuthHandler(http.server.BaseHTTPRequestHandler):
-    """Tratador HTTP para receber o retorno da autenticação no navegador."""
+    """Tratador HTTP para receber o retorno da sincronização no navegador."""
 
     server: "BrowserAuthServer"
 
     def log_message(self, format: str, *args: Any) -> None:
-        # Silencia logs no terminal para não poluir
         pass
 
     def do_GET(self) -> None:
         parsed = urlparse(self.path)
         path = parsed.path
-        query = parse_qs(parsed.query)
 
         if path in ("/", "/login"):
-            self._serve_login_page()
-        elif path == "/callback":
-            self._handle_oauth_callback(query)
+            self._serve_sync_page()
         elif path == "/success":
             self._serve_success_page()
         else:
             self.send_response(404)
             self.end_headers()
-            self.wfile.write(b"404 Not Found")
 
     def do_POST(self) -> None:
         parsed = urlparse(self.path)
-        if parsed.path == "/api/session":
-            self._handle_session_post()
-        elif parsed.path == "/api/config":
-            self._handle_config_post()
+        if parsed.path == "/api/sync":
+            self._handle_sync_request()
+        elif parsed.path == "/api/session":
+            self._handle_manual_session()
         else:
             self.send_response(404)
             self.end_headers()
 
-    def _serve_login_page(self) -> None:
+    def _serve_sync_page(self) -> None:
         port = self.server.server_port
-        state = self.server.oauth_state
-        client_id = self.server.get_client_id()
-
-        reddit_auth_url = (
-            f"https://www.reddit.com/api/v1/authorize?"
-            f"client_id={quote(client_id)}&"
-            f"response_type=code&"
-            f"state={quote(state)}&"
-            f"redirect_uri={quote(f'http://127.0.0.1:{port}/callback')}&"
-            f"duration=permanent&"
-            f"scope=identity,read,vote,mysubreddits,history,save"
-        )
-
         html = f"""<!DOCTYPE html>
 <html lang="pt-BR">
 <head>
@@ -117,7 +265,7 @@ class BrowserAuthHandler(http.server.BaseHTTPRequestHandler):
       background-color: #131F23;
       border: 1px solid #24373E;
       border-radius: 18px;
-      max-width: 540px;
+      max-width: 520px;
       width: 100%;
       padding: 32px 28px;
       box-shadow: 0 16px 36px rgba(0,0,0,0.5);
@@ -183,50 +331,21 @@ class BrowserAuthHandler(http.server.BaseHTTPRequestHandler):
     .btn-secondary {{
       background-color: #24373E;
       color: #F2F4F5;
-      margin-top: 8px;
+      margin-top: 10px;
     }}
     .btn-secondary:hover {{ background-color: #2F454E; }}
-    .bookmarklet-box {{
-      background: #0B1416;
-      border: 1px dashed #3D5560;
-      border-radius: 8px;
-      padding: 12px;
-      text-align: center;
-      margin: 10px 0;
-    }}
-    .bookmarklet {{
-      display: inline-block;
-      padding: 6px 14px;
-      background: #24373E;
-      color: #FF8555;
-      border-radius: 6px;
-      font-weight: 700;
-      font-size: 12px;
-      text-decoration: none;
-      cursor: move;
-    }}
-    details {{
-      margin-top: 14px;
-      font-size: 12px;
-      color: #8BA2AD;
-    }}
-    summary {{ cursor: pointer; font-weight: 600; padding: 4px 0; }}
-    input[type="text"] {{
-      width: 100%;
-      padding: 10px 12px;
-      background: #0B1416;
-      border: 1px solid #364C55;
-      border-radius: 8px;
-      color: #F2F4F5;
+    #status {{
+      margin-top: 12px;
       font-size: 13px;
-      margin-top: 8px;
-      margin-bottom: 10px;
+      text-align: center;
+      font-weight: 600;
+      min-height: 20px;
     }}
     .footer-note {{
       font-size: 11px;
       color: #627A86;
       text-align: center;
-      margin-top: 20px;
+      margin-top: 14px;
     }}
   </style>
 </head>
@@ -236,54 +355,45 @@ class BrowserAuthHandler(http.server.BaseHTTPRequestHandler):
       <div class="logo">r/</div>
       <div>
         <h1>Reddit Linux Desktop</h1>
-        <p class="sub">Conecte sua conta do Reddit com segurança no seu navegador</p>
+        <p class="sub">Conectar sua conta do Reddit</p>
       </div>
     </div>
 
-    <!-- Opção 1: OAuth Direto no Reddit -->
     <div class="card">
-      <h2>🔑 Opção 1: Autorizar via Reddit (Recomendado)</h2>
-      <p>Clique no botão abaixo para abrir a página oficial de permissão da sua conta do Reddit.</p>
-      <a class="btn" href="{reddit_auth_url}">Autorizar no Reddit</a>
-
-      <details>
-        <summary>⚙️ Usar seu próprio Client ID do Reddit</summary>
-        <div style="margin-top: 8px;">
-          <p style="margin-bottom: 8px;">
-            Você pode registrar seu próprio app em <a href="https://www.reddit.com/prefs/apps" target="_blank" style="color: #FF6433;">reddit.com/prefs/apps</a> (tipo <i>installed app</i>, redirect: <code>http://127.0.0.1:{port}/callback</code>):
-          </p>
-          <input type="text" id="clientIdInput" value="{client_id}" placeholder="Cole seu Client ID aqui" />
-          <button class="btn btn-secondary" onclick="saveClientId()">Salvar Client ID</button>
-        </div>
-      </details>
-    </div>
-
-    <!-- Opção 2: Conectar com 1-Clique da Sessão Atual do Navegador -->
-    <div class="card">
-      <h2>⚡ Opção 2: Conectar com Sessão do Navegador</h2>
-      <p>Já está logado no <b>reddit.com</b> nesta aba ou janela? Arraste o botão abaixo para sua <b>Barra de Favoritos</b> e clique nele em qualquer página do Reddit:</p>
-      <div class="bookmarklet-box">
-        <a class="bookmarklet" href="javascript:(function(){{const c=document.cookie;if(!location.host.includes('reddit.com')){{alert('Abra primeiro qualquer página do reddit.com e clique neste favorito!');return;}}fetch('http://127.0.0.1:{port}/api/session',{{method:'POST',headers:{{'Content-Type':'application/json'}},body:JSON.stringify({{cookies:c}})}}).then(r=>r.json()).then(d=>{{if(d.ok){{alert('✓ Conectado com sucesso ao Reddit Linux Desktop!');window.location='http://127.0.0.1:{port}/success';}}else{{alert('Erro: '+d.error);}}}}).catch(e=>alert('Verifique se o Reddit Linux Desktop está aberto.'));}})();">📌 Conectar ao Reddit Linux</a>
-      </div>
-      <p style="font-size: 11px; color: #7B95A2; margin-top: 6px; margin-bottom: 0;">
-        (Funciona instantaneamente lendo sua sessão já ativa sem precisar digitar senha).
+      <h2>🌐 Conectar com sua Conta</h2>
+      <p>
+        Certifique-se de que você está conectado ao <b>reddit.com</b> neste navegador e clique no botão abaixo para sincronizar instantaneamente com o aplicativo:
       </p>
+      <button class="btn" id="btnSync" onclick="syncNow()">🔄 Conectar Conta deste Navegador</button>
+      <a class="btn btn-secondary" href="https://www.reddit.com/login" target="_blank">↗ Abrir Reddit.com para Fazer Login</a>
+      <div id="status"></div>
     </div>
 
     <div class="footer-note">
-      🔒 Esta página está sendo servida localmente no seu computador (127.0.0.1). Nenhuma senha é salva por terceiros.
+      🔒 Sincronização direta e segura via armazenamento local. Nenhuma senha trafega pela internet ou terceiros.
     </div>
   </div>
 
   <script>
-    function saveClientId() {{
-      const val = document.getElementById('clientIdInput').value.trim();
-      if (!val) return;
-      fetch('/api/config', {{
-        method: 'POST',
-        headers: {{'Content-Type': 'application/json'}},
-        body: JSON.stringify({{client_id: val}})
-      }}).then(() => location.reload());
+    async function syncNow() {{
+      const st = document.getElementById('status');
+      st.innerHTML = '⏳ Verificando sessão do Reddit...';
+      st.style.color = '#FF8555';
+      try {{
+        const r = await fetch('http://127.0.0.1:{port}/api/sync', {{method: 'POST'}});
+        const d = await r.json();
+        if (d.ok) {{
+          st.innerHTML = '✓ Conectado como <b>u/' + d.username + '</b>! Redirecionando...';
+          st.style.color = '#46D160';
+          setTimeout(() => location.href = '/success', 800);
+        }} else {{
+          st.innerHTML = '⚠️ Nenhuma sessão ativa detectada. Faça login no reddit.com e tente novamente.';
+          st.style.color = '#FF585B';
+        }}
+      }} catch (e) {{
+        st.innerHTML = 'Erro de comunicação com o app.';
+        st.style.color = '#FF585B';
+      }}
     }}
   </script>
 </body>
@@ -301,49 +411,19 @@ class BrowserAuthHandler(http.server.BaseHTTPRequestHandler):
   <meta charset="UTF-8">
   <title>Login Concluído!</title>
   <style>
-    body {
-      background-color: #0B1416;
-      color: #F2F4F5;
-      font-family: sans-serif;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      height: 100vh;
-      margin: 0;
-    }
-    .box {
-      background: #131F23;
-      border: 1px solid #24373E;
-      border-radius: 16px;
-      padding: 36px 30px;
-      text-align: center;
-      max-width: 440px;
-      box-shadow: 0 12px 30px rgba(0,0,0,0.6);
-    }
-    .check {
-      font-size: 52px;
-      color: #46D160;
-      margin-bottom: 12px;
-    }
+    body { background-color: #0B1416; color: #F2F4F5; font-family: sans-serif; display: flex; align-items: center; justify-content: center; height: 100vh; margin: 0; }
+    .box { background: #131F23; border: 1px solid #24373E; border-radius: 16px; padding: 36px 30px; text-align: center; max-width: 440px; box-shadow: 0 12px 30px rgba(0,0,0,0.6); }
+    .check { font-size: 52px; color: #46D160; margin-bottom: 12px; }
     h1 { font-size: 22px; margin-bottom: 10px; }
     p { color: #8BA2AD; font-size: 14px; line-height: 1.5; margin-bottom: 24px; }
-    .btn {
-      display: inline-block;
-      padding: 10px 24px;
-      background: #FF4500;
-      color: white;
-      text-decoration: none;
-      font-weight: 700;
-      border-radius: 9999px;
-      font-size: 14px;
-    }
+    .btn { display: inline-block; padding: 10px 24px; background: #FF4500; color: white; text-decoration: none; font-weight: 700; border-radius: 9999px; font-size: 14px; }
   </style>
 </head>
 <body>
   <div class="box">
     <div class="check">✓</div>
     <h1>Login Concluído com Sucesso!</h1>
-    <p>Sua conta do Reddit foi vinculada ao <b>Reddit Linux Desktop</b>.<br>Você já pode fechar esta aba do navegador e voltar para o aplicativo.</p>
+    <p>Sua conta foi sincronizada com o <b>Reddit Linux Desktop</b>.<br>Você já pode fechar esta aba e voltar para o aplicativo.</p>
     <a class="btn" href="javascript:window.close();">Fechar esta Aba</a>
   </div>
 </body>
@@ -354,68 +434,35 @@ class BrowserAuthHandler(http.server.BaseHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(html.encode("utf-8"))
 
-    def _handle_oauth_callback(self, query: Dict[str, list]) -> None:
-        code_list = query.get("code")
-        state_list = query.get("state")
-        error_list = query.get("error")
+    def _handle_sync_request(self) -> None:
+        cookies, user = detect_browser_reddit_session()
+        if cookies and user:
+            SESSION_FILE.parent.mkdir(parents=True, exist_ok=True)
+            SESSION_FILE.write_text(json.dumps(cookies, indent=2), encoding="utf-8")
+            self.server.signals.login_completed.emit(cookies)
+            res = json.dumps({"ok": True, "username": user["username"]}).encode("utf-8")
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json")
+            self.send_header("Access-Control-Allow-Origin", "*")
+            self.send_header("Content-Length", str(len(res)))
+            self.end_headers()
+            self.wfile.write(res)
+        else:
+            res = json.dumps({"ok": False}).encode("utf-8")
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json")
+            self.send_header("Access-Control-Allow-Origin", "*")
+            self.send_header("Content-Length", str(len(res)))
+            self.end_headers()
+            self.wfile.write(res)
 
-        if error_list:
-            err = error_list[0]
-            self._serve_error_page(f"Autorização cancelada ou recusada pelo usuário ({err}).")
-            return
-
-        if not code_list or not state_list:
-            self._serve_error_page("Código de autorização não recebido.")
-            return
-
-        code = code_list[0]
-        state = state_list[0]
-
-        if state != self.server.oauth_state:
-            self._serve_error_page("Falha de segurança CSRF: estado de autorização inválido.")
-            return
-
-        client_id = self.server.get_client_id()
-        redirect_uri = f"http://127.0.0.1:{self.server.server_port}/callback"
-
-        try:
-            # Troca o código pelo access_token no Reddit
-            resp = requests.post(
-                "https://www.reddit.com/api/v1/access_token",
-                auth=(client_id, ""),
-                data={
-                    "grant_type": "authorization_code",
-                    "code": code,
-                    "redirect_uri": redirect_uri,
-                },
-                headers={"User-Agent": USER_AGENT},
-                timeout=15,
-            )
-            if resp.status_code == 200:
-                payload = resp.json()
-                if "access_token" in payload:
-                    payload["client_id"] = client_id
-                    # Salva sessão
-                    SESSION_FILE.parent.mkdir(parents=True, exist_ok=True)
-                    SESSION_FILE.write_text(json.dumps(payload, indent=2), encoding="utf-8")
-
-                    self.server.signals.login_completed.emit(payload)
-                    self.send_response(302)
-                    self.send_header("Location", "/success")
-                    self.end_headers()
-                    return
-            self._serve_error_page(f"Falha ao validar token com o Reddit (HTTP {resp.status_code}): {resp.text}")
-        except Exception as e:
-            self._serve_error_page(f"Erro de conexão com o Reddit: {e}")
-
-    def _handle_session_post(self) -> None:
+    def _handle_manual_session(self) -> None:
         try:
             length = int(self.headers.get("Content-Length", 0))
             raw = self.rfile.read(length)
             data = json.loads(raw.decode("utf-8"))
             cookies_raw = data.get("cookies", "")
 
-            # Parse de string de cookies
             cookie_dict: Dict[str, str] = {}
             for part in cookies_raw.split(";"):
                 if "=" in part:
@@ -426,7 +473,6 @@ class BrowserAuthHandler(http.server.BaseHTTPRequestHandler):
                 SESSION_FILE.parent.mkdir(parents=True, exist_ok=True)
                 SESSION_FILE.write_text(json.dumps(cookie_dict, indent=2), encoding="utf-8")
                 self.server.signals.login_completed.emit(cookie_dict)
-
                 res = json.dumps({"ok": True}).encode("utf-8")
                 self.send_response(200)
                 self.send_header("Content-Type", "application/json")
@@ -436,70 +482,17 @@ class BrowserAuthHandler(http.server.BaseHTTPRequestHandler):
                 self.wfile.write(res)
                 return
 
-            res = json.dumps({"ok": False, "error": "Nenhum cookie de autenticação do Reddit encontrado."}).encode("utf-8")
+            res = json.dumps({"ok": False, "error": "Cookies inválidos."}).encode("utf-8")
             self.send_response(400)
             self.send_header("Content-Type", "application/json")
-            self.send_header("Access-Control-Allow-Origin", "*")
-            self.send_header("Content-Length", str(len(res)))
             self.end_headers()
             self.wfile.write(res)
         except Exception as e:
             res = json.dumps({"ok": False, "error": str(e)}).encode("utf-8")
             self.send_response(500)
             self.send_header("Content-Type", "application/json")
-            self.send_header("Content-Length", str(len(res)))
             self.end_headers()
             self.wfile.write(res)
-
-    def _handle_config_post(self) -> None:
-        try:
-            length = int(self.headers.get("Content-Length", 0))
-            data = json.loads(self.rfile.read(length).decode("utf-8"))
-            cid = str(data.get("client_id", "")).strip()
-            if cid:
-                cfg = {}
-                if CONFIG_PATH.exists():
-                    try:
-                        cfg = json.loads(CONFIG_PATH.read_text(encoding="utf-8"))
-                    except Exception:
-                        pass
-                cfg["reddit_client_id"] = cid
-                CONFIG_PATH.write_text(json.dumps(cfg, indent=2), encoding="utf-8")
-            self.send_response(200)
-            self.end_headers()
-        except Exception:
-            self.send_response(500)
-            self.end_headers()
-
-    def _serve_error_page(self, msg: str) -> None:
-        html = f"""<!DOCTYPE html>
-<html lang="pt-BR">
-<head>
-  <meta charset="UTF-8">
-  <title>Erro no Login</title>
-  <style>
-    body {{ background: #0B1416; color: #F2F4F5; font-family: sans-serif; display: flex; align-items: center; justify-content: center; height: 100vh; margin: 0; }}
-    .box {{ background: #131F23; border: 1px solid #482323; border-radius: 16px; padding: 32px; text-align: center; max-width: 460px; }}
-    .err {{ font-size: 48px; color: #FF585B; margin-bottom: 10px; }}
-    h1 {{ font-size: 20px; margin-bottom: 12px; }}
-    p {{ color: #A2B6C0; font-size: 13px; line-height: 1.5; margin-bottom: 20px; }}
-    a {{ color: #FF6433; text-decoration: none; font-weight: 700; }}
-  </style>
-</head>
-<body>
-  <div class="box">
-    <div class="err">⚠️</div>
-    <h1>Não foi possível concluir o login</h1>
-    <p>{msg}</p>
-    <a href="/login">Tentar Novamente</a>
-  </div>
-</body>
-</html>"""
-        self.send_response(400)
-        self.send_header("Content-Type", "text/html; charset=utf-8")
-        self.send_header("Content-Length", str(len(html.encode("utf-8"))))
-        self.end_headers()
-        self.wfile.write(html.encode("utf-8"))
 
 
 class BrowserAuthServer(http.server.ThreadingHTTPServer):
@@ -507,29 +500,18 @@ class BrowserAuthServer(http.server.ThreadingHTTPServer):
 
     def __init__(self, host: str = "127.0.0.1", port: int = 8765) -> None:
         super().__init__((host, port), BrowserAuthHandler)
-        self.oauth_state: str = secrets.token_urlsafe(16)
         self.signals = AuthSignals()
-
-    def get_client_id(self) -> str:
-        try:
-            if CONFIG_PATH.exists():
-                cfg = json.loads(CONFIG_PATH.read_text(encoding="utf-8"))
-                if cfg.get("reddit_client_id"):
-                    return str(cfg["reddit_client_id"]).strip()
-        except Exception:
-            pass
-        return DEFAULT_CLIENT_ID
 
 
 class BrowserLoginDialog(QDialog):
-    """Diálogo modal no desktop acompanhando o login no navegador padrão."""
+    """Diálogo modal no desktop que detecta automaticamente ou abre no navegador."""
 
     login_completed = Signal(dict)
 
     def __init__(self, parent: Optional[QWidget] = None) -> None:
         super().__init__(parent)
         self.setWindowTitle("Conectar ao Reddit via Navegador")
-        self.setFixedSize(460, 290)
+        self.setFixedSize(480, 270)
         self.setModal(True)
         self.setAttribute(Qt.WidgetAttribute.WA_DeleteOnClose, True)
 
@@ -545,21 +527,18 @@ class BrowserLoginDialog(QDialog):
         logo = RedditLogoWidget(size=34)
         header_row.addWidget(logo)
 
-        lbl_title = QLabel("Login no Navegador Padrão")
+        lbl_title = QLabel("Conectar Conta do Reddit")
         lbl_title.setStyleSheet("font-size: 16px; font-weight: 800; color: #F2F4F5;")
         header_row.addWidget(lbl_title, 1)
         layout.addLayout(header_row)
 
-        self.lbl_desc = QLabel(
-            "Abrimos uma página de autorização no seu navegador padrão (Brave, Chrome ou Firefox).\n\n"
-            "Complete a autorização na aba aberta para conectar sua conta."
-        )
+        self.lbl_desc = QLabel("Verificando sessão ativa no seu navegador padrão...")
         self.lbl_desc.setWordWrap(True)
         self.lbl_desc.setStyleSheet("color: #A2B6C0; font-size: 13px; line-height: 1.45;")
         layout.addWidget(self.lbl_desc)
 
         self.progress = QProgressBar()
-        self.progress.setRange(0, 0)  # Indicador indeterminado animado
+        self.progress.setRange(0, 0)
         self.progress.setFixedHeight(4)
         self.progress.setTextVisible(False)
         self.progress.setStyleSheet(
@@ -568,7 +547,7 @@ class BrowserLoginDialog(QDialog):
         )
         layout.addWidget(self.progress)
 
-        self.lbl_status = QLabel("⏳ Aguardando autorização no navegador...")
+        self.lbl_status = QLabel("🔍 Detectando sessão no navegador...")
         self.lbl_status.setStyleSheet("color: #FF8555; font-size: 12px; font-weight: 600;")
         layout.addWidget(self.lbl_status)
 
@@ -577,7 +556,7 @@ class BrowserLoginDialog(QDialog):
         btn_row = QHBoxLayout()
         btn_row.setSpacing(10)
 
-        self.btn_reopen = QPushButton("🌐 Reabrir Navegador")
+        self.btn_reopen = QPushButton("🌐 Abrir no Navegador")
         self.btn_reopen.setProperty("class", "PillButton")
         self.btn_reopen.setCursor(QCursor(Qt.CursorShape.PointingHandCursor))
         self.btn_reopen.clicked.connect(self._open_browser)
@@ -593,6 +572,31 @@ class BrowserLoginDialog(QDialog):
 
         layout.addLayout(btn_row)
 
+        # Inicia verificação imediata
+        QTimer.singleShot(250, self._check_auto_detect_or_start_server)
+
+    def _check_auto_detect_or_start_server(self) -> None:
+        cookies, user = detect_browser_reddit_session()
+        if cookies and user:
+            # Conta encontrada diretamente!
+            uname = user.get("username", "Usuário")
+            self.lbl_desc.setText(f"Conta identificada com sucesso no seu navegador: <b>u/{uname}</b>!")
+            self.lbl_status.setText("✓ Conectando...")
+            self.lbl_status.setStyleSheet("color: #46D160; font-size: 13px; font-weight: 700;")
+            self.progress.setVisible(False)
+
+            SESSION_FILE.parent.mkdir(parents=True, exist_ok=True)
+            SESSION_FILE.write_text(json.dumps(cookies, indent=2), encoding="utf-8")
+
+            self.login_completed.emit(cookies)
+            QTimer.singleShot(600, self.accept)
+            return
+
+        # Se não achou na primeira tentativa, inicia o servidor local e abre o navegador
+        self.lbl_desc.setText(
+            "Abra o Reddit no seu navegador padrão (Brave, Chrome ou Firefox) para conectar sua conta."
+        )
+        self.lbl_status.setText("⏳ Aguardando login no navegador...")
         self._start_server_and_open_browser()
 
     def _start_server_and_open_browser(self) -> None:
@@ -618,15 +622,16 @@ class BrowserLoginDialog(QDialog):
     def _open_browser(self) -> None:
         if self._server:
             port = self._server.server_port
-            url = f"http://127.0.0.1:{port}/login"
-            webbrowser.open(url)
+            webbrowser.open(f"http://127.0.0.1:{port}/login")
+        else:
+            webbrowser.open("https://www.reddit.com/login")
 
     def _on_success(self, data: dict) -> None:
         self.lbl_status.setText("✓ Conectado com sucesso!")
         self.lbl_status.setStyleSheet("color: #46D160; font-size: 13px; font-weight: 700;")
         self.progress.setVisible(False)
         self.login_completed.emit(data)
-        QTimer.singleShot(700, self.accept)
+        QTimer.singleShot(600, self.accept)
 
     def closeEvent(self, event) -> None:
         self._shutdown_server()
