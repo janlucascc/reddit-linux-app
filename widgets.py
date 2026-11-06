@@ -58,6 +58,7 @@ from PySide6.QtWidgets import (
     QVBoxLayout,
     QWidget,
 )
+from PySide6.QtWebEngineCore import QWebEngineSettings
 from PySide6.QtWebEngineWidgets import QWebEngineView
 from shiboken6 import isValid
 
@@ -90,6 +91,19 @@ def canonical_reddit_url(permalink: str, fallback_url: str = "") -> str:
         clean = permalink if permalink.startswith("/") else f"/{permalink}"
         return f"https://www.reddit.com{clean}"
     return fallback_url
+
+
+def resolve_reddit_audio_url(video_url: str) -> str:
+    """Deriva a URL da faixa de áudio separada dos servidores v.redd.it (CR-06)."""
+    if not video_url or "v.redd.it" not in video_url:
+        return ""
+    clean_url = video_url.split("?")[0]
+    base_url = clean_url.rsplit("/", 1)[0]
+    filename = clean_url.rsplit("/", 1)[-1]
+    if "CMAF_" in filename:
+        return f"{base_url}/CMAF_AUDIO_128.mp4"
+    else:
+        return f"{base_url}/DASH_AUDIO_128.mp4"
 
 
 def open_video_stream(url: str, permalink: str = "") -> None:
@@ -2434,8 +2448,12 @@ class EmbeddedVideoWidget(QFrame):
 
         layout.addWidget(top_bar)
 
-        # 2. View WebEngine HTML5 com suporte a HLS / MP4 e aviso de áudio
+        # 2. View WebEngine HTML5 com suporte a HLS / MP4 e áudio nativo sincronizado
         self.web_view = QWebEngineView()
+        settings = self.web_view.settings()
+        settings.setAttribute(
+            QWebEngineSettings.WebAttribute.PlaybackRequiresUserGesture, False
+        )
         layout.addWidget(self.web_view, 1)
 
         # 3. Banner informativo de Codec / Áudio DASH (CR-06)
@@ -2446,8 +2464,7 @@ class EmbeddedVideoWidget(QFrame):
         cb_layout.setSpacing(8)
 
         self.lbl_codec_info = QLabel(
-            "💡 Dica: Vídeos v.redd.it transmitem áudio em trilha DASH separada. "
-            "Se não ouvir som no player embutido, clique em 'Abrir com Áudio HD no MPV'."
+            "🔊 Áudio nativo sincronizado ativo. Se preferir assistir em player de sistema externo, clique em 'Abrir no MPV'."
         )
         self.lbl_codec_info.setProperty("role", "caption")
         self.lbl_codec_info.setWordWrap(True)
@@ -2474,11 +2491,13 @@ class EmbeddedVideoWidget(QFrame):
         tokens = ThemeManager.instance().tokens
         bg_hex = tokens.bg_canvas
         play_src = video_url or hls_url
+        audio_src = resolve_reddit_audio_url(video_url)
 
         html_doc = f"""<!DOCTYPE html>
 <html>
 <head>
   <meta charset="UTF-8">
+  <script src="https://cdn.jsdelivr.net/npm/hls.js@1"></script>
   <style>
     * {{ margin: 0; padding: 0; box-sizing: border-box; }}
     body {{
@@ -2499,7 +2518,68 @@ class EmbeddedVideoWidget(QFrame):
   </style>
 </head>
 <body>
-  <video id="rvid" src="{play_src}" controls autoplay playsinline loop></video>
+  <video id="rvid" controls autoplay playsinline loop></video>
+  <audio id="raud" preload="auto"></audio>
+  <script>
+    const video = document.getElementById('rvid');
+    const audio = document.getElementById('raud');
+    const hlsUrl = '{hls_url}';
+    const videoUrl = '{play_src}';
+    const audioUrl = '{audio_src}';
+
+    let hlsActive = false;
+
+    function startDualAudioFallback() {{
+      video.src = videoUrl;
+      if (audioUrl) {{
+        audio.src = audioUrl;
+        audio.volume = video.muted ? 0 : video.volume;
+        audio.muted = video.muted;
+
+        video.addEventListener('play', () => {{
+          audio.currentTime = video.currentTime;
+          audio.play().catch(() => {{}});
+        }});
+        video.addEventListener('pause', () => {{
+          audio.pause();
+        }});
+        video.addEventListener('seeking', () => {{
+          audio.currentTime = video.currentTime;
+        }});
+        video.addEventListener('volumechange', () => {{
+          audio.volume = video.muted ? 0 : video.volume;
+          audio.muted = video.muted;
+        }});
+        video.addEventListener('timeupdate', () => {{
+          if (Math.abs(audio.currentTime - video.currentTime) > 0.3) {{
+            audio.currentTime = video.currentTime;
+          }}
+        }});
+      }}
+      video.play().catch(() => {{}});
+    }}
+
+    if (window.Hls && Hls.isSupported() && hlsUrl) {{
+      try {{
+        const hls = new Hls({{ enableWorker: false, maxBufferLength: 30 }});
+        hls.loadSource(hlsUrl);
+        hls.attachMedia(video);
+        hls.on(Hls.Events.MANIFEST_PARSED, () => {{
+          hlsActive = true;
+          video.play().catch(() => {{}});
+        }});
+        hls.on(Hls.Events.ERROR, (evt, data) => {{
+          if (data && data.fatal && !hlsActive) {{
+            startDualAudioFallback();
+          }}
+        }});
+      }} catch (e) {{
+        startDualAudioFallback();
+      }}
+    }} else {{
+      startDualAudioFallback();
+    }}
+  </script>
 </body>
 </html>"""
         self.web_view.setHtml(html_doc)
