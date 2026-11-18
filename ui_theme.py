@@ -1,10 +1,9 @@
 """
 Motor de Temas, Tokens de Design Semânticos e Estilos QSS do Reddit Linux Desktop.
 
-Direção visual: Editorial Signal Desk — uma estação de leitura nativa, precisa e
-silenciosa, com a assinatura Orangered usada como sinal operacional. A interface
-prioriza trilhos de navegação, superfícies editoriais e estados de foco claros,
-evitando o excesso de controles em formato de pílula.
+Direção visual: fidelidade ao Reddit Web/Shreddit moderno.
+Mantém as proporções, superfícies e hierarquia da interface web oficial:
+topbar compacta, navegação lateral fixa, feed central estreito e painel recente.
 """
 
 from __future__ import annotations
@@ -387,7 +386,7 @@ def build_stylesheet(dark: bool = True) -> str:
        ====================================================================== */
     QFrame#TopHeader {{
         background-color: {p['canvas_subtle']};
-        border-bottom: 2px solid {p['border_subtle']};
+        border-bottom: 1px solid {p['border_subtle']};
     }}
 
     QPushButton#BrandButton {{
@@ -407,7 +406,7 @@ def build_stylesheet(dark: bool = True) -> str:
     QFrame#SearchPillContainer {{
         background-color: {p['surface_interactive']};
         border: 1px solid {p['border_subtle']};
-        border-radius: 12px;
+        border-radius: 20px;
     }}
     QFrame#SearchPillContainer:hover {{
         background-color: {p['surface_interactive_hover']};
@@ -418,7 +417,7 @@ def build_stylesheet(dark: bool = True) -> str:
         background-color: transparent;
         color: {p['text_primary']};
         border: none;
-        border-radius: 9px;
+        border-radius: 18px;
         padding: 6px 10px;
         font-size: 13px;
         font-weight: 700;
@@ -623,9 +622,9 @@ def build_stylesheet(dark: bool = True) -> str:
         background-color: {p['surface_interactive']};
     }}
     QPushButton.NavButton[active="true"] {{
-        background-color: {p['brand_accent_soft']};
-        color: {p['brand_accent']};
-        border: 1px solid {p['brand_accent']};
+        background-color: {p['surface_interactive_hover']};
+        color: {p['text_primary']};
+        border: none;
         font-weight: 700;
     }}
 
@@ -669,6 +668,16 @@ def build_stylesheet(dark: bool = True) -> str:
         background-color: {p['surface_card']};
         border: 1px solid {p['border_default']};
         border-radius: 12px;
+    }}
+    QFrame#RightCommunityCard {{
+        background-color: transparent;
+        border: none;
+        border-radius: 0px;
+    }}
+    QFrame#RecentPostsCard {{
+        background-color: transparent;
+        border: none;
+        border-radius: 0px;
     }}
 
     QFrame.RecentPostItem {{

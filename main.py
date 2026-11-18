@@ -450,8 +450,8 @@ class RedditLinuxWindow(QMainWindow):
         self.search_pill = QFrame()
         self.search_pill.setObjectName("SearchPillContainer")
         self.search_pill.setFixedHeight(40)
-        self.search_pill.setMinimumWidth(360)
-        self.search_pill.setMaximumWidth(580)
+        self.search_pill.setMinimumWidth(420)
+        self.search_pill.setMaximumWidth(620)
         sp_layout = QHBoxLayout(self.search_pill)
         sp_layout.setContentsMargins(10, 0, 12, 0)
         sp_layout.setSpacing(8)
@@ -556,9 +556,9 @@ class RedditLinuxWindow(QMainWindow):
         # 2A. Coluna 1: Sidebar Esquerda Retrátil (250px <-> 64px Icon Rail — Imagem 1)
         self.left_sidebar = QFrame()
         self.left_sidebar.setObjectName("LeftSidebar")
-        self.left_sidebar.setMinimumWidth(64)
-        self.left_sidebar.setMaximumWidth(320)
-        self.left_sidebar.resize(250, 700)
+        self.left_sidebar.setMinimumWidth(220)
+        self.left_sidebar.setMaximumWidth(250)
+        self.left_sidebar.resize(224, 700)
         sidebar_outer = QVBoxLayout(self.left_sidebar)
         sidebar_outer.setContentsMargins(8, 10, 8, 10)
         sidebar_outer.setSpacing(4)
@@ -734,7 +734,7 @@ class RedditLinuxWindow(QMainWindow):
         center_layout.setSpacing(0)
 
         self.stack = QStackedWidget()
-        self.stack.setMaximumWidth(780)  # Largura de leitura confortável (estilo Shreddit)
+        self.stack.setMaximumWidth(580)
         self._build_feed_page()
         self._build_detail_page()
         center_layout.addWidget(self.stack, 1, Qt.AlignmentFlag.AlignHCenter)
@@ -748,7 +748,7 @@ class RedditLinuxWindow(QMainWindow):
         self.body_splitter.setStretchFactor(0, 0)
         self.body_splitter.setStretchFactor(1, 1)
         self.body_splitter.setStretchFactor(2, 0)
-        self.body_splitter.setSizes([250, 810, 320])
+        self.body_splitter.setSizes([224, 1056, 320])
 
         for i in range(1, self.body_splitter.count()):
             handle = self.body_splitter.handle(i)
@@ -1107,8 +1107,8 @@ class RedditLinuxWindow(QMainWindow):
     def _build_right_sidebar(self) -> None:
         self.right_sidebar = QFrame()
         self.right_sidebar.setObjectName("RightCommunityCard")
-        self.right_sidebar.setMinimumWidth(250)
-        self.right_sidebar.setMaximumWidth(370)
+        self.right_sidebar.setMinimumWidth(280)
+        self.right_sidebar.setMaximumWidth(320)
         r_outer = QVBoxLayout(self.right_sidebar)
         r_outer.setContentsMargins(10, 10, 10, 10)
         r_outer.setSpacing(0)
@@ -1349,20 +1349,38 @@ class RedditLinuxWindow(QMainWindow):
         if self.current_user:
             uname = self.current_user.get("username", "Usuário")
             karma = self.current_user.get("karma", 0)
-            hdr = menu.addAction(f"👤 u/{uname} ({format_count(karma)} karma)")
+            hdr = menu.addAction(f"u/{uname} ({format_count(karma)} karma)")
             hdr.setEnabled(False)
             menu.addSeparator()
-            act_saved = menu.addAction("🔖 Posts Salvos")
+            act_avatar = menu.addAction("Editar avatar")
+            act_saved = menu.addAction("Rascunhos")
+            act_rewards = menu.addAction("Conquistas")
+            act_earn = menu.addAction("Ganhar")
+            act_premium = menu.addAction("Premium")
             act_theme = menu.addAction(
                 "☀️ Tema Claro" if self.dark_mode else "🌙 Tema Escuro"
             )
             menu.addSeparator()
+            act_ads = menu.addAction("Anuncie no Reddit")
+            act_settings = menu.addAction("Configurações")
             act_logout = menu.addAction("🚪 Encerrar Sessão (Sair)")
             chosen = menu.exec(QCursor.pos())
-            if chosen == act_saved:
+            if chosen == act_avatar:
+                webbrowser.open("https://www.reddit.com/settings/avatar")
+            elif chosen == act_saved:
                 self.show_saved_posts()
+            elif chosen == act_rewards:
+                webbrowser.open("https://www.reddit.com/achievements")
+            elif chosen == act_earn:
+                webbrowser.open("https://www.reddit.com/contributor")
+            elif chosen == act_premium:
+                webbrowser.open("https://www.reddit.com/premium")
             elif chosen == act_theme:
                 self._toggle_theme()
+            elif chosen == act_ads:
+                webbrowser.open("https://ads.reddit.com")
+            elif chosen == act_settings:
+                webbrowser.open("https://www.reddit.com/settings")
             elif chosen == act_logout:
                 self._on_logout_clicked()
         else:
@@ -1472,9 +1490,9 @@ class RedditLinuxWindow(QMainWindow):
             if collapsed:
                 self.left_sidebar.setFixedWidth(64)
             else:
-                self.left_sidebar.setMinimumWidth(190)
-                self.left_sidebar.setMaximumWidth(320)
-                self.left_sidebar.resize(250, self.left_sidebar.height())
+                self.left_sidebar.setMinimumWidth(220)
+                self.left_sidebar.setMaximumWidth(250)
+                self.left_sidebar.resize(224, self.left_sidebar.height())
 
         for w in (
             self.btn_games_section,
