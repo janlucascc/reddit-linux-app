@@ -444,7 +444,7 @@ class RedditLinuxWindow(QMainWindow):
         self._sync_theme_btn()
         self._sync_auto_translate_btn()
 
-        header_layout.addStretch(1)
+        header_layout.addStretch(3)
 
         # Pílula Central de Busca com Snoo Laranja Embutido (#SearchPillContainer — Imagem 4)
         self.search_pill = QFrame()
@@ -730,7 +730,7 @@ class RedditLinuxWindow(QMainWindow):
         # 2B. Coluna 2: Área Central com QStackedWidget (Feed Page / Detail Page)
         center_container = QWidget()
         center_layout = QVBoxLayout(center_container)
-        center_layout.setContentsMargins(16, 10, 16, 12)
+        center_layout.setContentsMargins(56, 10, 16, 12)
         center_layout.setSpacing(0)
 
         self.stack = QStackedWidget()
