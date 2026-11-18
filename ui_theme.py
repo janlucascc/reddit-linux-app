@@ -1,7 +1,10 @@
 """
 Motor de Temas, Tokens de Design Semânticos e Estilos QSS do Reddit Linux Desktop.
-Implementa as diretrizes da skill ui-skills (baseline-ui) e semântica visual Shreddit,
-com conformidade matemática 100% WCAG 2.1 AA/AAA e reatividade via ThemeManager(QObject).
+
+Direção visual: Editorial Signal Desk — uma estação de leitura nativa, precisa e
+silenciosa, com a assinatura Orangered usada como sinal operacional. A interface
+prioriza trilhos de navegação, superfícies editoriais e estados de foco claros,
+evitando o excesso de controles em formato de pílula.
 """
 
 from __future__ import annotations
@@ -384,7 +387,7 @@ def build_stylesheet(dark: bool = True) -> str:
        ====================================================================== */
     QFrame#TopHeader {{
         background-color: {p['canvas_subtle']};
-        border-bottom: 1px solid {p['border_default']};
+        border-bottom: 2px solid {p['border_subtle']};
     }}
 
     QPushButton#BrandButton {{
@@ -392,9 +395,9 @@ def build_stylesheet(dark: bool = True) -> str:
         color: {p['text_primary']};
         border: none;
         font-family: "Reddit Sans", "Inter", sans-serif;
-        font-size: 24px;
+        font-size: 22px;
         font-weight: 800;
-        letter-spacing: -1px;
+        letter-spacing: -0.5px;
         padding: 0px 4px;
     }}
     QPushButton#BrandButton:hover {{
@@ -404,7 +407,7 @@ def build_stylesheet(dark: bool = True) -> str:
     QFrame#SearchPillContainer {{
         background-color: {p['surface_interactive']};
         border: 1px solid {p['border_subtle']};
-        border-radius: 20px;
+        border-radius: 12px;
     }}
     QFrame#SearchPillContainer:hover {{
         background-color: {p['surface_interactive_hover']};
@@ -415,8 +418,8 @@ def build_stylesheet(dark: bool = True) -> str:
         background-color: transparent;
         color: {p['text_primary']};
         border: none;
-        border-radius: 18px;
-        padding: 6px 12px;
+        border-radius: 9px;
+        padding: 6px 10px;
         font-size: 13px;
         font-weight: 700;
     }}
@@ -466,7 +469,7 @@ def build_stylesheet(dark: bool = True) -> str:
         background-color: {p['surface_input']};
         color: {p['text_primary']};
         border: 1px solid {p['border_default']};
-        border-radius: 8px;
+        border-radius: 7px;
         padding: 7px 12px;
         font-size: 13px;
         selection-background-color: {p['brand_accent']};
@@ -493,7 +496,7 @@ def build_stylesheet(dark: bool = True) -> str:
         background-color: {p['surface_interactive']};
         color: {p['text_primary']};
         border: 1px solid {p['border_default']};
-        border-radius: 16px;
+        border-radius: 8px;
         padding: 5px 12px;
         font-size: 12px;
         font-weight: 600;
@@ -605,9 +608,9 @@ def build_stylesheet(dark: bool = True) -> str:
         background-color: transparent;
         color: {p['text_primary']};
         border: none;
-        border-radius: 10px;
+        border-radius: 7px;
         text-align: left;
-        padding: 10px 12px;
+        padding: 9px 12px;
         font-size: 15px;
         font-weight: 500;
     }}
@@ -620,8 +623,9 @@ def build_stylesheet(dark: bool = True) -> str:
         background-color: {p['surface_interactive']};
     }}
     QPushButton.NavButton[active="true"] {{
-        background-color: {p['surface_interactive_hover']};
-        color: {p['text_primary']};
+        background-color: {p['brand_accent_soft']};
+        color: {p['brand_accent']};
+        border: 1px solid {p['brand_accent']};
         font-weight: 700;
     }}
 
@@ -644,7 +648,7 @@ def build_stylesheet(dark: bool = True) -> str:
     QFrame.PostCard {{
         background-color: {p['surface_card']};
         border: 1px solid {p['border_subtle']};
-        border-radius: 16px;
+        border-radius: 12px;
     }}
     QFrame.PostCard:hover {{
         border: 1px solid {p['border_default']};
@@ -654,7 +658,7 @@ def build_stylesheet(dark: bool = True) -> str:
     QFrame.CompactPostRow {{
         background-color: {p['surface_card']};
         border: 1px solid {p['border_default']};
-        border-radius: 10px;
+        border-radius: 8px;
     }}
     QFrame.CompactPostRow:hover {{
         border: 1px solid {p['border_active']};
@@ -664,7 +668,7 @@ def build_stylesheet(dark: bool = True) -> str:
     QFrame.DetailCard, QFrame#RightCommunityCard, QFrame#SubredditBannerCard, QFrame.SidebarCard, QFrame#RecentPostsCard {{
         background-color: {p['surface_card']};
         border: 1px solid {p['border_default']};
-        border-radius: 16px;
+        border-radius: 12px;
     }}
 
     QFrame.RecentPostItem {{
@@ -702,7 +706,7 @@ def build_stylesheet(dark: bool = True) -> str:
         color: {p['text_secondary']};
         border: none;
         border-bottom: 2px solid transparent;
-        padding: 6px 10px;
+        padding: 8px 10px;
         font-size: 15px;
         font-weight: 600;
     }}
@@ -739,7 +743,7 @@ def build_stylesheet(dark: bool = True) -> str:
        ====================================================================== */
     QFrame#VotePillar, QFrame#BottomVotePill {{
         background-color: {p['surface_interactive']};
-        border-radius: 16px;
+        border-radius: 10px;
         border: 1px solid {p['border_subtle']};
     }}
 
@@ -782,7 +786,7 @@ def build_stylesheet(dark: bool = True) -> str:
         background-color: {p['surface_interactive']};
         color: {p['text_primary']};
         border: 1px solid {p['border_subtle']};
-        border-radius: 16px;
+        border-radius: 8px;
         padding: 6px 14px;
         font-size: 13px;
         font-weight: 600;
@@ -802,7 +806,7 @@ def build_stylesheet(dark: bool = True) -> str:
         background-color: {p['brand_accent']};
         color: {p['text_inverse']};
         border: none;
-        border-radius: 16px;
+        border-radius: 8px;
         padding: 6px 15px;
         font-size: 12px;
         font-weight: 800;
@@ -832,7 +836,7 @@ def build_stylesheet(dark: bool = True) -> str:
         background-color: {p['surface_interactive']};
         color: {p['text_primary']};
         border: 1px solid {p['border_default']};
-        border-radius: 16px;
+        border-radius: 8px;
         padding: 6px 14px;
         font-size: 13px;
         font-weight: 600;
@@ -852,7 +856,7 @@ def build_stylesheet(dark: bool = True) -> str:
         background-color: transparent;
         color: {p['text_secondary']};
         border: 1px solid transparent;
-        border-radius: 16px;
+        border-radius: 8px;
         padding: 6px 9px;
         font-size: 13px;
         font-weight: 700;
@@ -874,8 +878,8 @@ def build_stylesheet(dark: bool = True) -> str:
     QLabel.BadgeStickied, QLabel.BadgeMod, QLabel.BadgeOP, QLabel.BadgeAdmin,
     QLabel.BadgeVideo, QLabel.BadgeNSFW, QLabel.BadgeSpoiler, QLabel.BadgeOC,
     QLabel.BadgeFlair, QLabel.BadgeTranslated {{
-        border-radius: 6px;
-        padding: 3px 8px;
+        border-radius: 4px;
+        padding: 2px 7px;
         font-size: 12px;
         font-weight: 700;
     }}
@@ -956,7 +960,7 @@ def build_stylesheet(dark: bool = True) -> str:
     QFrame#MediaCodecFallbackBanner, QFrame.InfoPanel {{
         background-color: {p['surface_interactive']};
         border: 1px solid {p['border_subtle']};
-        border-radius: 8px;
+        border-radius: 7px;
     }}
 
     /* ======================================================================
@@ -992,20 +996,24 @@ def build_stylesheet(dark: bool = True) -> str:
     QFrame#ToastNotification {{
         background-color: {p['surface_card']};
         border: 1px solid {p['border_default']};
-        border-radius: 12px;
+        border-radius: 9px;
         padding: 10px 16px;
     }}
     QFrame#ToastNotification[variant="success"] {{
-        border-left: 4px solid {p['badge_mod']};
+        border-color: {p['badge_mod']};
+        background-color: {p['badge_mod_soft']};
     }}
     QFrame#ToastNotification[variant="warning"] {{
-        border-left: 4px solid {p['badge_spoiler']};
+        border-color: {p['badge_spoiler']};
+        background-color: {spoiler_soft_bg};
     }}
     QFrame#ToastNotification[variant="error"] {{
-        border-left: 4px solid {p['badge_nsfw']};
+        border-color: {p['badge_nsfw']};
+        background-color: {nsfw_soft_bg};
     }}
     QFrame#ToastNotification[variant="info"] {{
-        border-left: 4px solid {p['action_link']};
+        border-color: {p['action_link']};
+        background-color: {p['badge_op_soft']};
     }}
 
     /* ======================================================================
@@ -1026,7 +1034,7 @@ def build_stylesheet(dark: bool = True) -> str:
         border-radius: 4px;
     }}
     QScrollBar::handle:vertical:hover {{
-        background: {p['border_active']};
+        background: {p['brand_accent']};
     }}
     QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical {{
         height: 0px;
@@ -1042,7 +1050,7 @@ def build_stylesheet(dark: bool = True) -> str:
         border-radius: 4px;
     }}
     QScrollBar::handle:horizontal:hover {{
-        background: {p['border_active']};
+        background: {p['brand_accent']};
     }}
     QScrollBar::add-line:horizontal, QScrollBar::sub-line:horizontal {{
         width: 0px;
