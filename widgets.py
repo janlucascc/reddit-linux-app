@@ -64,7 +64,7 @@ from PySide6.QtWebEngineWidgets import QWebEngineView
 from shiboken6 import isValid
 
 from reddit_api import CommentItem, PostItem
-from ui_theme import ThemeManager
+from ui_theme import ThemeManager, prefers_reduced_motion
 
 
 SUBREDDIT_COLORS = [
@@ -253,7 +253,7 @@ class UiSkillsButton(QPushButton):
     pressScale = Property(float, _get_press_scale, _set_press_scale)
 
     def mousePressEvent(self, event) -> None:
-        if event.button() == Qt.MouseButton.LeftButton:
+        if event.button() == Qt.MouseButton.LeftButton and not prefers_reduced_motion():
             self._anim.stop()
             self._anim.setStartValue(self._press_scale)
             self._anim.setEndValue(0.96)
@@ -261,11 +261,13 @@ class UiSkillsButton(QPushButton):
         super().mousePressEvent(event)
 
     def mouseReleaseEvent(self, event) -> None:
-        if self._press_scale != 1.0:
+        if self._press_scale != 1.0 and not prefers_reduced_motion():
             self._anim.stop()
             self._anim.setStartValue(self._press_scale)
             self._anim.setEndValue(1.0)
             self._anim.start()
+        else:
+            self._press_scale = 1.0
         super().mouseReleaseEvent(event)
 
 
@@ -1025,15 +1027,18 @@ class SnoovatarStatusWidget(QWidget):
     def __init__(
         self,
         username: str = "",
-        online: bool = True,
+        online: bool = False,
         size: int = 34,
         parent: Optional[QWidget] = None,
     ) -> None:
         super().__init__(parent)
         self._username = username
-        self._online = online
+        self._online = bool(online and username)
         self.setFixedSize(size, size)
+        self.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
         self.setCursor(QCursor(Qt.CursorShape.PointingHandCursor))
+        self.setAccessibleName("Abrir menu da conta e preferências")
+        self.setAccessibleDescription("Conta desconectada")
         ThemeManager.instance().theme_changed.connect(self._on_theme_changed)
 
     def _on_theme_changed(self, _mode: str) -> None:
@@ -1042,18 +1047,30 @@ class SnoovatarStatusWidget(QWidget):
 
     def set_user_state(self, username: str, online: bool = True) -> None:
         self._username = username
-        self._online = online
+        self._online = bool(online and username)
         if isValid(self):
             self.update()
 
     def set_logged_in(self, logged_in: bool, username: str = "") -> None:
         self._username = username if logged_in else ""
-        self._online = True
-        self.setToolTip(
-            f"Perfil: u/{username} (Online)" if logged_in else "Menu de Conta e Tema"
-        )
+        self._online = bool(logged_in)
+        if logged_in and username:
+            self.setToolTip(f"Perfil: u/{username} (Sessão ativa)")
+            self.setAccessibleName(f"Menu do perfil u/{username}")
+            self.setAccessibleDescription("Sessão autenticada ativa")
+        else:
+            self.setToolTip("Menu de Conta e Tema")
+            self.setAccessibleName("Abrir menu da conta e preferências")
+            self.setAccessibleDescription("Conta desconectada")
         if isValid(self):
             self.update()
+
+    def keyPressEvent(self, event) -> None:
+        if event.key() in (Qt.Key.Key_Return, Qt.Key.Key_Enter, Qt.Key.Key_Space):
+            self.clicked.emit()
+            event.accept()
+            return
+        super().keyPressEvent(event)
 
     def mousePressEvent(self, event) -> None:
         if event.button() == Qt.MouseButton.LeftButton:
@@ -1069,17 +1086,21 @@ class SnoovatarStatusWidget(QWidget):
         w = float(self.width())
         h = float(self.height())
 
-        # Círculo principal amarelo-ouro estilo Snoovatar (Imagens 4 e 5)
-        painter.setPen(Qt.PenStyle.NoPen)
+        # Círculo principal estilo Snoovatar (com anel de foco acessível quando focado)
+        if self.hasFocus():
+            painter.setPen(QPen(QColor(tokens.border_focus), 2.0))
+        else:
+            painter.setPen(Qt.PenStyle.NoPen)
         painter.setBrush(QColor("#D4AF37"))
-        painter.drawEllipse(QRectF(1, 1, w - 2, h - 2))
+        painter.drawEllipse(QRectF(2, 2, w - 4, h - 4))
 
         # Silhueta interna do Snoo
+        painter.setPen(Qt.PenStyle.NoPen)
         painter.setBrush(QColor("#A6831B"))
         painter.drawEllipse(QRectF(w * 0.25, h * 0.36, w * 0.50, h * 0.42))
         painter.drawEllipse(QRectF(w * 0.22, h * 0.58, w * 0.56, h * 0.36))
 
-        # Ponto verde de status online no canto inferior esquerdo/direito
+        # Ponto verde de status somente quando autenticado (estado real)
         if self._online:
             dot_size = max(8.0, w * 0.28)
             painter.setPen(QPen(QColor(tokens.canvas_subtle), 1.8))
@@ -1093,6 +1114,7 @@ class SnoovatarStatusWidget(QWidget):
 class ShimmerSkeletonWidget(QWidget):
     """
     Bloco retangular com animação shimmer contínua conectado ao ThemeManager (CR-03).
+    Respeita preferência de redução de movimento do sistema Linux.
     """
 
     def __init__(
@@ -1109,7 +1131,8 @@ class ShimmerSkeletonWidget(QWidget):
         self._timer = QTimer(self)
         self._timer.setInterval(45)
         self._timer.timeout.connect(self._advance_shimmer)
-        self._timer.start()
+        if not prefers_reduced_motion():
+            self._timer.start()
 
         ThemeManager.instance().theme_changed.connect(self._on_theme_changed)
 
@@ -1130,22 +1153,22 @@ class ShimmerSkeletonWidget(QWidget):
         w = float(self.width())
         h = float(self.height())
 
-        grad = QLinearGradient(0.0, 0.0, w, 0.0)
         base_col = QColor(tokens.skeleton_base)
-        hi_col = QColor(tokens.skeleton_highlight)
-
-        p0 = max(0.0, self._phase - 0.25)
-        p1 = self._phase
-        p2 = min(1.0, self._phase + 0.25)
-
-        grad.setColorAt(0.0, base_col)
-        grad.setColorAt(p0, base_col)
-        grad.setColorAt(p1, hi_col)
-        grad.setColorAt(p2, base_col)
-        grad.setColorAt(1.0, base_col)
-
         painter.setPen(Qt.PenStyle.NoPen)
-        painter.setBrush(grad)
+        if prefers_reduced_motion():
+            painter.setBrush(base_col)
+        else:
+            grad = QLinearGradient(0.0, 0.0, w, 0.0)
+            hi_col = QColor(tokens.skeleton_highlight)
+            p0 = max(0.0, self._phase - 0.25)
+            p1 = self._phase
+            p2 = min(1.0, self._phase + 0.25)
+            grad.setColorAt(0.0, base_col)
+            grad.setColorAt(p0, base_col)
+            grad.setColorAt(p1, hi_col)
+            grad.setColorAt(p2, base_col)
+            grad.setColorAt(1.0, base_col)
+            painter.setBrush(grad)
         painter.drawRoundedRect(QRectF(0, 0, w, h), self._radius, self._radius)
         painter.end()
 
@@ -1480,6 +1503,7 @@ class PostCardWidget(QFrame):
     toggle_save_requested = Signal(object)  # PostItem
     toggle_join_requested = Signal(str)  # nome do subreddit
     vote_requested = Signal(object, int)  # PostItem, direction (1, -1, 0)
+    hide_post_requested = Signal(object)  # PostItem
 
     def __init__(
         self,
@@ -1501,7 +1525,13 @@ class PostCardWidget(QFrame):
         self._on_request_image = on_request_image
         self._fallback_image_tried: bool = False
         self.setProperty("class", "PostCard")
+        self.setProperty("focusable", "true")
+        self.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
         self.setCursor(QCursor(Qt.CursorShape.PointingHandCursor))
+        self.setAccessibleName(f"Post: {post.display_title}")
+        self.setAccessibleDescription(
+            f"Em {post.subreddit_prefixed} por u/{post.author}, {post.formatted_score} votos e {post.formatted_comments} comentários. Pressione Enter para abrir."
+        )
 
         if post.likes is True:
             self._vote_state = 1
@@ -1524,6 +1554,7 @@ class PostCardWidget(QFrame):
 
         btn_sub = QPushButton(post.subreddit_prefixed)
         btn_sub.setProperty("class", "SubredditLink")
+        btn_sub.setAccessibleName(f"Abrir comunidade {post.subreddit_prefixed}")
         btn_sub.setCursor(QCursor(Qt.CursorShape.PointingHandCursor))
         btn_sub.clicked.connect(
             lambda: self.open_subreddit_requested.emit(self.post.subreddit)
@@ -1540,6 +1571,7 @@ class PostCardWidget(QFrame):
         # Botão pílula branco de alto contraste "Unir-se" (Imagem 2 e 3)
         self.btn_join = UiSkillsButton("Unir-se")
         self.btn_join.setObjectName("JoinPillButton")
+        self.btn_join.setAccessibleName(f"Unir-se a r/{post.subreddit}")
         self.btn_join.setProperty("joined", "true" if is_joined else "false")
         self.btn_join.setVisible(not is_joined)
         self.btn_join.setToolTip(f"Seguir r/{post.subreddit}")
@@ -1549,6 +1581,7 @@ class PostCardWidget(QFrame):
         # Botão de menu "•••" (Imagem 2 e 3)
         self.btn_more = UiSkillsButton("•••")
         self.btn_more.setProperty("class", "PillButton")
+        self.btn_more.setAccessibleName("Mais opções da postagem")
         self.btn_more.setFixedSize(48, 30)
         self.btn_more.setToolTip("Mais opções")
         self.btn_more.clicked.connect(self._show_more_menu)
@@ -1682,8 +1715,9 @@ class PostCardWidget(QFrame):
 
         self.btn_upvote = UiSkillsButton("⇧")
         self.btn_upvote.setObjectName("VoteButton")
+        self.btn_upvote.setAccessibleName("Votar positivamente (Upvote)")
         self.btn_upvote.setFixedSize(28, 28)
-        self.btn_upvote.setToolTip("Upvote")
+        self.btn_upvote.setToolTip("Votar positivamente (Upvote)")
         self.btn_upvote.clicked.connect(lambda: self._on_vote_clicked(1))
         vp_layout.addWidget(self.btn_upvote)
 
@@ -1694,8 +1728,9 @@ class PostCardWidget(QFrame):
 
         self.btn_downvote = UiSkillsButton("⇩")
         self.btn_downvote.setObjectName("VoteButton")
+        self.btn_downvote.setAccessibleName("Votar negativamente (Downvote)")
         self.btn_downvote.setFixedSize(28, 28)
-        self.btn_downvote.setToolTip("Downvote")
+        self.btn_downvote.setToolTip("Votar negativamente (Downvote)")
         self.btn_downvote.clicked.connect(lambda: self._on_vote_clicked(-1))
         vp_layout.addWidget(self.btn_downvote)
 
@@ -1704,6 +1739,7 @@ class PostCardWidget(QFrame):
         # Pílula de Comentários
         self.comm_btn = UiSkillsButton(f" {post.formatted_comments}")
         self.comm_btn.setProperty("class", "PillButton")
+        self.comm_btn.setAccessibleName(f"Abrir comentários ({post.formatted_comments})")
         self.comm_btn.setIcon(create_reddit_vector_icon("chat", size=16))
         self.comm_btn.setIconSize(QSize(16, 16))
         self.comm_btn.setFixedHeight(32)
@@ -1714,6 +1750,7 @@ class PostCardWidget(QFrame):
         # Pílula de Tradução
         self.translate_btn = UiSkillsButton()
         self.translate_btn.setProperty("class", "TranslateButton")
+        self.translate_btn.setAccessibleName("Traduzir postagem")
         self.translate_btn.setIconSize(QSize(16, 16))
         self.translate_btn.setFixedHeight(32)
         self.translate_btn.clicked.connect(
@@ -1725,6 +1762,7 @@ class PostCardWidget(QFrame):
         # Pílula de Compartilhar
         self.share_btn = UiSkillsButton(" Compartilhar")
         self.share_btn.setProperty("class", "PillButton")
+        self.share_btn.setAccessibleName("Copiar link da postagem")
         self.share_btn.setIcon(create_reddit_vector_icon("share", size=16))
         self.share_btn.setIconSize(QSize(16, 16))
         self.share_btn.setFixedHeight(32)
@@ -1745,6 +1783,7 @@ class PostCardWidget(QFrame):
             tokens = ThemeManager.instance().tokens
             self.play_btn = UiSkillsButton(" Assistir")
             self.play_btn.setProperty("class", "PillButtonAccent")
+            self.play_btn.setAccessibleName("Assistir vídeo com áudio")
             self.play_btn.setIcon(
                 create_reddit_vector_icon("play", color_hex=tokens.text_inverse, size=14)
             )
@@ -1776,22 +1815,29 @@ class PostCardWidget(QFrame):
 
     def _show_more_menu(self) -> None:
         menu = QMenu(self)
-        act_save = menu.addAction("★ Remover dos Salvos" if self.is_saved else "🔖 Salvar Post")
-        act_trans = menu.addAction("🔄 Alternar Tradução")
-        act_copy = menu.addAction("🔗 Copiar Link do Post")
-        act_browser = menu.addAction("🌐 Abrir no Navegador")
+        act_open = menu.addAction("Abrir post")
+        act_browser = menu.addAction("Abrir no Reddit Web ↗")
+        menu.addSeparator()
+        act_save = menu.addAction(
+            "Remover dos salvos (local)" if self.is_saved else "Salvar neste computador"
+        )
+        act_trans = menu.addAction("Alternar tradução")
+        act_copy = menu.addAction("Compartilhar link")
+        menu.addSeparator()
+        act_hide = menu.addAction("Ocultar post")
         chosen = menu.exec(QCursor.pos())
-        if chosen == act_save:
+        if chosen == act_open:
+            self._emit_open_post()
+        elif chosen == act_save:
             self._on_save_clicked()
         elif chosen == act_trans:
             self.translate_post_requested.emit(self.post, self)
         elif chosen == act_copy:
-            full_url = canonical_reddit_url(self.post.permalink, self.post.url)
-            clipboard = QGuiApplication.clipboard()
-            if clipboard:
-                clipboard.setText(full_url)
+            self._copy_link(self.share_btn)
         elif chosen == act_browser:
             webbrowser.open(canonical_reddit_url(self.post.permalink, self.post.url))
+        elif chosen == act_hide:
+            self.hide_post_requested.emit(self.post)
 
     def _compute_reserved_media_height(self, max_w: int = 640, max_h: int = 380) -> int:
         """Calcula a altura exata do container antes do download da imagem para CLS = 0 (CR-04)."""
@@ -1827,6 +1873,13 @@ class PostCardWidget(QFrame):
     def _emit_open_post(self) -> None:
         self.mark_visited()
         self.open_post_requested.emit(self.post)
+
+    def keyPressEvent(self, event) -> None:
+        if event.key() in (Qt.Key.Key_Return, Qt.Key.Key_Enter, Qt.Key.Key_Space):
+            self._emit_open_post()
+            event.accept()
+            return
+        super().keyPressEvent(event)
 
     def mousePressEvent(self, event) -> None:
         if event.button() == Qt.MouseButton.LeftButton:
@@ -1879,14 +1932,16 @@ class PostCardWidget(QFrame):
                 )
             )
             self.save_btn.setProperty("saved", "true")
-            self.save_btn.setToolTip("Remover dos salvos")
+            self.save_btn.setToolTip("Salvo neste computador — clique para remover")
+            self.save_btn.setAccessibleName("Remover post dos salvos neste computador")
         else:
-            self.save_btn.setText("")
+            self.save_btn.setText(" Salvar")
             self.save_btn.setIcon(
                 create_reddit_vector_icon("bookmark", color_hex=tokens.text_primary, size=16)
             )
             self.save_btn.setProperty("saved", "false")
-            self.save_btn.setToolTip("Salvar postagem")
+            self.save_btn.setToolTip("Salvar postagem neste computador")
+            self.save_btn.setAccessibleName("Salvar postagem neste computador")
         self.save_btn.style().unpolish(self.save_btn)
         self.save_btn.style().polish(self.save_btn)
 
@@ -1910,12 +1965,19 @@ class PostCardWidget(QFrame):
         self._sync_save_button()
 
     def _on_vote_clicked(self, direction: int) -> None:
+        self._prev_vote_state = self._vote_state
         if self._vote_state == direction:
             self._vote_state = 0
         else:
             self._vote_state = direction
         self._sync_vote_ui()
         self.vote_requested.emit(self.post, self._vote_state)
+
+    def revert_vote(self, target_state: Optional[int] = None) -> None:
+        if target_state is None:
+            target_state = getattr(self, "_prev_vote_state", 0)
+        self._vote_state = target_state
+        self._sync_vote_ui()
 
     def _sync_vote_ui(self) -> None:
         if (
@@ -2027,11 +2089,20 @@ class PostCardWidget(QFrame):
         if not isValid(self) or not isValid(self.translate_btn):
             return
         if loading:
-            self.translate_btn.setText("⏳...")
+            self.translate_btn.setText(" Traduzindo…")
             self.translate_btn.setEnabled(False)
         else:
             self.translate_btn.setEnabled(True)
             self.refresh_translation_ui()
+
+    def set_translation_failed(self) -> None:
+        if not isValid(self) or not isValid(self.translate_btn):
+            return
+        self.translate_btn.setEnabled(True)
+        self.translate_btn.setText(" Falha — tentar novamente")
+        self.translate_btn.setProperty("translated", "false")
+        self.translate_btn.style().unpolish(self.translate_btn)
+        self.translate_btn.style().polish(self.translate_btn)
 
     def refresh_translation_ui(self) -> None:
         if not isValid(self):
@@ -2057,7 +2128,13 @@ class RecentPostItemWidget(QFrame):
         super().__init__(parent)
         self.post = post
         self.setProperty("class", "RecentPostItem")
+        self.setProperty("focusable", "true")
+        self.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
         self.setCursor(QCursor(Qt.CursorShape.PointingHandCursor))
+        self.setAccessibleName(f"Post recente: {post.display_title}")
+        self.setAccessibleDescription(
+            f"Em r/{post.subreddit}, {post.formatted_score} votos, {post.formatted_comments} comentários. Pressione Enter para abrir."
+        )
 
         layout = QVBoxLayout(self)
         layout.setContentsMargins(4, 10, 4, 10)
@@ -2070,6 +2147,7 @@ class RecentPostItemWidget(QFrame):
 
         sub_btn = QPushButton(f"r/{post.subreddit}")
         sub_btn.setProperty("class", "SubredditLink")
+        sub_btn.setAccessibleName(f"Abrir comunidade r/{post.subreddit}")
         sub_btn.setCursor(QCursor(Qt.CursorShape.PointingHandCursor))
         sub_btn.clicked.connect(
             lambda: self.open_subreddit_requested.emit(self.post.subreddit)
@@ -2092,6 +2170,13 @@ class RecentPostItemWidget(QFrame):
         )
         stats_lbl.setProperty("role", "caption")
         layout.addWidget(stats_lbl)
+
+    def keyPressEvent(self, event) -> None:
+        if event.key() in (Qt.Key.Key_Return, Qt.Key.Key_Enter, Qt.Key.Key_Space):
+            self.open_post_requested.emit(self.post)
+            event.accept()
+            return
+        super().keyPressEvent(event)
 
     def mousePressEvent(self, event) -> None:
         if event.button() == Qt.MouseButton.LeftButton:
@@ -2174,6 +2259,16 @@ class CommentRowWidget(QFrame):
         top_row = QHBoxLayout()
         top_row.setSpacing(8)
 
+        # Botão focável por teclado para recolher/expandir discussão (Fase 2 & 5)
+        self.btn_fold = UiSkillsButton("[−]")
+        self.btn_fold.setProperty("class", "FoldButton")
+        self.btn_fold.setFixedHeight(22)
+        self.btn_fold.setToolTip("Recolher ou expandir comentário e respostas")
+        self.btn_fold.clicked.connect(
+            lambda: self.toggle_fold_requested.emit(self.comment.id)
+        )
+        top_row.addWidget(self.btn_fold)
+
         # Foto de Perfil do Usuário com avatar colorido e silhueta Snoo
         self.user_avatar = UserAvatarWidget(comment.author, size=24)
         self.user_avatar.setToolTip(
@@ -2244,7 +2339,7 @@ class CommentRowWidget(QFrame):
         # 2. Corpo e Ações (ocultados quando o comentário está colapsado)
         self.body_container = QWidget()
         self.body_container.setSizePolicy(
-            QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Minimum
+            QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Minimum
         )
         body_layout = QVBoxLayout(self.body_container)
         body_layout.setContentsMargins(0, 2, 0, 0)
@@ -2253,7 +2348,7 @@ class CommentRowWidget(QFrame):
         self.body_lbl = QLabel(make_wrap_friendly_text(comment.display_body))
         self.body_lbl.setWordWrap(True)
         self.body_lbl.setSizePolicy(
-            QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Preferred
+            QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Minimum
         )
         self.body_lbl.setTextInteractionFlags(
             Qt.TextInteractionFlag.TextSelectableByMouse
@@ -2269,6 +2364,8 @@ class CommentRowWidget(QFrame):
 
         self.btn_up = UiSkillsButton("▲")
         self.btn_up.setObjectName("VoteButton")
+        self.btn_up.setAccessibleName(f"Votar positivamente no comentário de u/{comment.author}")
+        self.btn_up.setToolTip("Votar positivamente (Upvote)")
         self.btn_up.setFixedSize(26, 24)
         self.btn_up.clicked.connect(lambda: self._on_vote(1))
         act_row.addWidget(self.btn_up)
@@ -2279,21 +2376,27 @@ class CommentRowWidget(QFrame):
 
         self.btn_down = UiSkillsButton("▼")
         self.btn_down.setObjectName("VoteButton")
+        self.btn_down.setAccessibleName(f"Votar negativamente no comentário de u/{comment.author}")
+        self.btn_down.setToolTip("Votar negativamente (Downvote)")
         self.btn_down.setFixedSize(26, 24)
         self.btn_down.clicked.connect(lambda: self._on_vote(-1))
         act_row.addWidget(self.btn_down)
 
-        btn_reply = UiSkillsButton("💬 Responder")
-        btn_reply.setProperty("class", "PillButton")
-        btn_reply.setFixedHeight(26)
-        btn_reply.clicked.connect(self._toggle_reply_box)
-        act_row.addWidget(btn_reply)
+        self.btn_reply = UiSkillsButton(" Responder")
+        self.btn_reply.setProperty("class", "PillButton")
+        self.btn_reply.setIcon(create_reddit_vector_icon("chat", size=14))
+        self.btn_reply.setIconSize(QSize(14, 14))
+        self.btn_reply.setAccessibleName(f"Responder ao comentário de u/{comment.author}")
+        self.btn_reply.setFixedHeight(26)
+        self.btn_reply.clicked.connect(self._toggle_reply_box)
+        act_row.addWidget(self.btn_reply)
 
         if comment.depth >= self.MAX_VISUAL_DEPTH and descendant_count > 0:
             btn_cont = UiSkillsButton(
-                f"↗ Continuar esta discussão ({descendant_count}) →"
+                f"Continuar discussão ({descendant_count}) →"
             )
             btn_cont.setProperty("class", "TranslateButton")
+            btn_cont.setAccessibleName(f"Continuar discussão com {descendant_count} respostas")
             btn_cont.setFixedHeight(26)
             btn_cont.clicked.connect(
                 lambda: self.continue_thread_requested.emit(self.comment.id)
@@ -2310,23 +2413,36 @@ class CommentRowWidget(QFrame):
         rb_layout.setContentsMargins(0, 6, 0, 4)
         rb_layout.setSpacing(6)
 
+        lbl_reply_label = QLabel(f"Responder a u/{comment.author}")
+        lbl_reply_label.setProperty("role", "field_label")
+        rb_layout.addWidget(lbl_reply_label)
+
         self.reply_input = QPlainTextEdit()
+        self.reply_input.setAccessibleName(f"Texto da resposta para u/{comment.author}")
         self.reply_input.setPlaceholderText(
-            f"Responder a u/{comment.author} em Markdown..."
+            f"Responder a u/{comment.author} em Markdown…"
         )
         self.reply_input.setFixedHeight(84)
         rb_layout.addWidget(self.reply_input)
+
+        self.reply_error_lbl = QLabel("")
+        self.reply_error_lbl.setProperty("role", "field_error")
+        self.reply_error_lbl.setWordWrap(True)
+        self.reply_error_lbl.setVisible(False)
+        rb_layout.addWidget(self.reply_error_lbl)
 
         rb_btns = QHBoxLayout()
         rb_btns.addStretch(1)
 
         btn_cancel_reply = UiSkillsButton("Cancelar")
         btn_cancel_reply.setProperty("class", "PillButton")
-        btn_cancel_reply.clicked.connect(lambda: self.reply_box.setVisible(False))
+        btn_cancel_reply.setAccessibleName("Cancelar resposta")
+        btn_cancel_reply.clicked.connect(self._cancel_reply_box)
         rb_btns.addWidget(btn_cancel_reply)
 
-        self.btn_send_reply = UiSkillsButton("Publicar Resposta")
+        self.btn_send_reply = UiSkillsButton("Publicar resposta")
         self.btn_send_reply.setProperty("class", "PillButtonAccent")
+        self.btn_send_reply.setAccessibleName(f"Publicar resposta para u/{comment.author}")
         self.btn_send_reply.clicked.connect(self._submit_inline_reply)
         rb_btns.addWidget(self.btn_send_reply)
 
@@ -2335,12 +2451,34 @@ class CommentRowWidget(QFrame):
 
         layout.addWidget(self.body_container)
         self._sync_vote_ui()
+        self._update_fold_accessibility(0)
 
         ThemeManager.instance().theme_changed.connect(self._on_theme_changed)
 
     def _on_theme_changed(self, _mode: str) -> None:
         if isValid(self):
             self.update()
+
+    def _update_fold_accessibility(self, hidden_count: int = 0) -> None:
+        if not hasattr(self, "btn_fold") or not isValid(self.btn_fold):
+            return
+        state_str = "Recolhido" if self._is_folded else "Expandido"
+        depth_str = f"nível {self.comment.depth + 1}"
+        if self._is_folded:
+            plural = "respostas ocultas" if hidden_count != 1 else "resposta oculta"
+            self.btn_fold.setAccessibleName(
+                f"Expandir comentário de u/{self.comment.author}"
+            )
+            self.btn_fold.setAccessibleDescription(
+                f"{state_str}, {depth_str}, {hidden_count} {plural}."
+            )
+        else:
+            self.btn_fold.setAccessibleName(
+                f"Recolher comentário de u/{self.comment.author}"
+            )
+            self.btn_fold.setAccessibleDescription(
+                f"{state_str}, {depth_str}, {self.descendant_count} respostas nesta discussão."
+            )
 
     def set_folded(self, folded: bool, hidden_count: int = 0) -> None:
         self._is_folded = folded
@@ -2355,15 +2493,23 @@ class CommentRowWidget(QFrame):
                 self.folded_summary_lbl.setHidden(False)
             else:
                 self.folded_summary_lbl.setHidden(True)
+        self._update_fold_accessibility(hidden_count)
         self.update()
 
     def _on_vote(self, direction: int) -> None:
+        self._prev_vote_state = self._vote_state
         if self._vote_state == direction:
             self._vote_state = 0
         else:
             self._vote_state = direction
         self._sync_vote_ui()
         self.vote_comment_requested.emit(self.comment, self._vote_state)
+
+    def revert_vote(self, target_state: Optional[int] = None) -> None:
+        if target_state is None:
+            target_state = getattr(self, "_prev_vote_state", 0)
+        self._vote_state = target_state
+        self._sync_vote_ui()
 
     def _sync_vote_ui(self) -> None:
         if not isValid(self):
@@ -2387,12 +2533,21 @@ class CommentRowWidget(QFrame):
             if vis and isValid(self.reply_input):
                 self.reply_input.setFocus()
 
+    def _cancel_reply_box(self) -> None:
+        if isValid(self.reply_error_lbl):
+            self.reply_error_lbl.setVisible(False)
+        if isValid(self.reply_box):
+            self.reply_box.setVisible(False)
+
     def _submit_inline_reply(self) -> None:
         if not isValid(self.reply_input):
             return
         txt = self.reply_input.toPlainText().strip()
         if not txt:
+            self.set_reply_error("Digite sua resposta antes de publicar.")
+            self.reply_input.setFocus()
             return
+        self.set_reply_error("")
         fullname = (
             self.comment.id
             if self.comment.id.startswith("t1_")
@@ -2400,7 +2555,19 @@ class CommentRowWidget(QFrame):
         )
         self.reply_comment_submitted.emit(fullname, txt, self)
 
+    def set_reply_error(self, message: str) -> None:
+        if isValid(self.reply_error_lbl):
+            self.reply_error_lbl.setText(message)
+            self.reply_error_lbl.setVisible(bool(message))
+
+    def set_reply_submitting(self, submitting: bool) -> None:
+        if isValid(self.btn_send_reply):
+            self.btn_send_reply.setEnabled(not submitting)
+            self.btn_send_reply.setText("Publicando…" if submitting else "Publicar resposta")
+
     def clear_and_close_reply(self) -> None:
+        self.set_reply_submitting(False)
+        self.set_reply_error("")
         if isValid(self.reply_input):
             self.reply_input.clear()
         if isValid(self.reply_box):
@@ -2469,11 +2636,21 @@ class CommentRowWidget(QFrame):
     def _sync_btn(self) -> None:
         if not isValid(self) or not isValid(self.tr_btn):
             return
+        tokens = ThemeManager.instance().tokens
+        self.tr_btn.setIconSize(QSize(14, 14))
         if self.comment.show_translated:
-            self.tr_btn.setText("🔄 Original")
+            self.tr_btn.setIcon(
+                create_reddit_vector_icon("refresh", color_hex=tokens.action_link, size=14)
+            )
+            self.tr_btn.setText(" Original")
+            self.tr_btn.setAccessibleName(f"Ver comentário original de u/{self.comment.author}")
             self.tr_btn.setProperty("translated", "true")
         else:
-            self.tr_btn.setText("🌐 Traduzir")
+            self.tr_btn.setIcon(
+                create_reddit_vector_icon("translate", color_hex=tokens.text_primary, size=14)
+            )
+            self.tr_btn.setText(" Traduzir")
+            self.tr_btn.setAccessibleName(f"Traduzir comentário de u/{self.comment.author}")
             self.tr_btn.setProperty("translated", "false")
         self.tr_btn.style().unpolish(self.tr_btn)
         self.tr_btn.style().polish(self.tr_btn)
@@ -2482,11 +2659,20 @@ class CommentRowWidget(QFrame):
         if not isValid(self) or not isValid(self.tr_btn):
             return
         if loading:
-            self.tr_btn.setText("⏳...")
+            self.tr_btn.setText(" Traduzindo…")
             self.tr_btn.setEnabled(False)
         else:
             self.tr_btn.setEnabled(True)
             self.refresh_ui()
+
+    def set_translation_failed(self) -> None:
+        if not isValid(self) or not isValid(self.tr_btn):
+            return
+        self.tr_btn.setEnabled(True)
+        self.tr_btn.setText(" Falha — tentar novamente")
+        self.tr_btn.setProperty("translated", "false")
+        self.tr_btn.style().unpolish(self.tr_btn)
+        self.tr_btn.style().polish(self.tr_btn)
 
     def refresh_ui(self) -> None:
         if not isValid(self):
@@ -2596,8 +2782,11 @@ class CommentsFlatContainer(QWidget):
                 self._rows_by_id[c.id] = len(self._ordered_rows)
                 self._ordered_rows.append(row)
                 self.rows_layout.addWidget(row)
+                row.setVisible(True)
         finally:
             self.setUpdatesEnabled(True)
+            self.rows_widget.adjustSize()
+            self.updateGeometry()
 
         return list(self._ordered_rows)
 
@@ -2668,21 +2857,18 @@ class CommentsFlatContainer(QWidget):
                 if not isValid(row):
                     continue
                 if i < start_idx or i >= end_idx:
-                    if not row.isHidden():
-                        row.setHidden(True)
+                    row.setHidden(True)
                     continue
 
                 d = row.comment.depth
                 if active_fold_depth is not None:
                     if d > active_fold_depth:
-                        if not row.isHidden():
-                            row.setHidden(True)
+                        row.setHidden(True)
                         continue
                     else:
                         active_fold_depth = None
 
-                if row.isHidden():
-                    row.setHidden(False)
+                row.setHidden(False)
 
                 is_folded = row.comment.id in self._folded_roots
                 if is_folded:

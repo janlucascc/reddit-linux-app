@@ -42,6 +42,7 @@ class RedditLoginDialog(QDialog):
     def __init__(self, parent: Optional[QWidget] = None) -> None:
         super().__init__(parent)
         self.setWindowTitle("Entrar no Reddit")
+        self.setAccessibleName("Entrar na conta do Reddit")
         self.resize(520, 720)
         self.setMinimumSize(440, 580)
         self.setModal(True)
@@ -70,6 +71,8 @@ class RedditLoginDialog(QDialog):
 
         btn_close = QPushButton("✕")
         btn_close.setProperty("class", "IconButton")
+        btn_close.setAccessibleName("Fechar janela de login")
+        btn_close.setToolTip("Fechar (Esc)")
         btn_close.setCursor(QCursor(Qt.CursorShape.PointingHandCursor))
         btn_close.setFixedSize(28, 28)
         btn_close.clicked.connect(self.reject)
@@ -82,8 +85,9 @@ class RedditLoginDialog(QDialog):
         sb_layout = QHBoxLayout(self.status_bar)
         sb_layout.setContentsMargins(16, 6, 16, 6)
         self.lbl_status = QLabel(
-            "🔒 Conectando com segurança ao Reddit. Entre normalmente com usuário/senha ou Google."
+            "Conectando com segurança ao Reddit. Entre normalmente com usuário/senha ou Google."
         )
+        self.lbl_status.setAccessibleName("Status da conexão de login")
         self.lbl_status.setWordWrap(True)
         self.lbl_status.setProperty("role", "caption")
         sb_layout.addWidget(self.lbl_status)
@@ -95,6 +99,7 @@ class RedditLoginDialog(QDialog):
         self.cookie_store.cookieAdded.connect(self._on_cookie_added)
 
         self.web_view = QWebEngineView()
+        self.web_view.setAccessibleName("Página oficial de login do Reddit")
         self.web_page = QWebEnginePage(self.profile, self.web_view)
         self.web_view.setPage(self.web_page)
         layout.addWidget(self.web_view, 1)

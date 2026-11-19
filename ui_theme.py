@@ -8,6 +8,8 @@ topbar compacta, navegação lateral fixa, feed central estreito e painel recent
 
 from __future__ import annotations
 from dataclasses import dataclass
+import os
+import subprocess
 from typing import Any, Dict, Optional
 from pathlib import Path
 from PySide6.QtCore import QObject, Signal
@@ -16,6 +18,45 @@ from PySide6.QtWidgets import QApplication
 
 BRAND_FONT_PATH = Path(__file__).resolve().parent / "assets" / "fonts" / "RedditSans.ttf"
 _BRAND_FONT_LOADED: Optional[bool] = None
+_REDUCED_MOTION_CACHE: Optional[bool] = None
+
+
+def prefers_reduced_motion() -> bool:
+    """
+    Detecta a preferência de redução de movimento no desktop Linux
+    (variáveis de ambiente ou configuração GNOME enable-animations).
+    """
+    global _REDUCED_MOTION_CACHE
+    if _REDUCED_MOTION_CACHE is not None:
+        return _REDUCED_MOTION_CACHE
+    env_val = (
+        os.environ.get("REDUCE_MOTION")
+        or os.environ.get("QT_REDUCE_MOTION")
+        or os.environ.get("GTK_ENABLE_ANIMATIONS")
+    )
+    if env_val is not None:
+        lower = env_val.strip().lower()
+        if lower in ("1", "true", "yes", "on"):
+            _REDUCED_MOTION_CACHE = os.environ.get("GTK_ENABLE_ANIMATIONS") is None
+            return _REDUCED_MOTION_CACHE
+        if lower in ("0", "false", "no", "off"):
+            _REDUCED_MOTION_CACHE = os.environ.get("GTK_ENABLE_ANIMATIONS") is not None
+            return _REDUCED_MOTION_CACHE
+    try:
+        res = subprocess.run(
+            ["gsettings", "get", "org.gnome.desktop.interface", "enable-animations"],
+            capture_output=True,
+            text=True,
+            timeout=0.4,
+            check=False,
+        )
+        if res.returncode == 0 and res.stdout.strip().lower() == "false":
+            _REDUCED_MOTION_CACHE = True
+            return True
+    except Exception:
+        pass
+    _REDUCED_MOTION_CACHE = False
+    return False
 
 
 def load_brand_fonts() -> bool:
@@ -257,7 +298,8 @@ def build_stylesheet(dark: bool = True) -> str:
     }}
 
     /* Anel de Foco Acessível Global (WCAG 2.4.7) */
-    QPushButton:focus, QLineEdit:focus, QTextEdit:focus, QComboBox:focus {{
+    QPushButton:focus, QLineEdit:focus, QTextEdit:focus, QPlainTextEdit:focus, QComboBox:focus,
+    QFrame[focusable="true"]:focus, QFrame.PostCard:focus, QFrame.RecentPostItem:focus, QFrame#FeaturedGameCard:focus {{
         border: 2px solid {p['border_focus']};
         outline: none;
     }}
@@ -368,6 +410,23 @@ def build_stylesheet(dark: bool = True) -> str:
     QLabel[role="status_error"] {{
         color: {p['badge_nsfw']};
         font-size: 12px;
+        font-weight: 700;
+    }}
+    QLabel[role="field_error"] {{
+        color: {p['badge_nsfw']};
+        font-size: 12px;
+        font-weight: 600;
+        padding-top: 2px;
+    }}
+    QLabel[role="form_step"] {{
+        color: {p['text_muted']};
+        font-size: 11px;
+        font-weight: 800;
+        letter-spacing: 0.7px;
+    }}
+    QLabel[role="field_label"] {{
+        color: {p['text_primary']};
+        font-size: 13px;
         font-weight: 700;
     }}
     QLabel[role="char_counter"][state="normal"] {{
@@ -1064,6 +1123,57 @@ def build_stylesheet(dark: bool = True) -> str:
     QFrame#ToastNotification[variant="info"] {{
         border-color: {p['action_link']};
         background-color: {p['badge_op_soft']};
+    }}
+    QPushButton#ToastActionBtn {{
+        background-color: {p['surface_interactive']};
+        color: {p['text_primary']};
+        border: 1px solid {p['border_default']};
+        border-radius: 12px;
+        padding: 3px 10px;
+        font-size: 12px;
+        font-weight: 700;
+    }}
+    QPushButton#ToastActionBtn:hover {{
+        background-color: {p['surface_interactive_hover']};
+        border-color: {p['action_link']};
+        color: {p['action_link']};
+    }}
+
+    QFrame#FeedStateCard, QFrame#InlineContextPanel {{
+        background-color: {p['surface_card']};
+        border: 1px solid {p['border_default']};
+        border-radius: 12px;
+    }}
+    QPushButton.FoldButton {{
+        background: transparent;
+        color: {p['text_muted']};
+        border: 1px solid transparent;
+        border-radius: 6px;
+        padding: 1px 5px;
+        font-family: "DejaVu Sans Mono", monospace;
+        font-size: 11px;
+        font-weight: 700;
+    }}
+    QPushButton.FoldButton:hover {{
+        background-color: {p['surface_interactive']};
+        color: {p['text_primary']};
+        border-color: {p['border_subtle']};
+    }}
+    QPushButton.CardTitleLink {{
+        background: transparent;
+        color: {p['text_primary']};
+        border: 1px solid transparent;
+        border-radius: 6px;
+        text-align: left;
+        padding: 0px;
+        font-size: 18px;
+        font-weight: 700;
+    }}
+    QPushButton.CardTitleLink[visited="true"] {{
+        color: {p['text_muted']};
+    }}
+    QPushButton.CardTitleLink:hover {{
+        color: {p['action_link']};
     }}
 
     /* ======================================================================
