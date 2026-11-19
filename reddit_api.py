@@ -215,7 +215,12 @@ class RedditClient:
         self._oauth_refresh_token: Optional[str] = None
         self._oauth_client_id: str = ""
         self._lock = threading.Lock()
+        self._img_thread_local = threading.local()
         self._sub_cache: Dict[str, SubredditInfo] = {}
+        self._sub_icon_cache: OrderedDict[str, str] = OrderedDict()
+        self._sub_icon_bytes_cache: OrderedDict[str, bytes] = OrderedDict()
+        self._user_avatar_cache: OrderedDict[str, str] = OrderedDict()
+        self._user_avatar_bytes_cache: OrderedDict[str, bytes] = OrderedDict()
         self._image_cache: OrderedDict[str, bytes] = OrderedDict()
         self._logged_in_user: Optional[Dict[str, Any]] = None
 
@@ -554,6 +559,56 @@ class RedditClient:
             resp = self._session.get(url, params=req_params, headers=headers, timeout=12)
         return resp
 
+    def _public_json_get(
+        self, path: str, params: Optional[Dict[str, Any]] = None
+    ) -> requests.Response:
+        """Executa GET público em old.reddit.com/<path>.json sem cookies inválidos."""
+        req_params = dict(params or {})
+        req_params["raw_json"] = 1
+        clean_path = path if path.startswith("/") else f"/{path}"
+        clean_path = clean_path.rstrip("/") or "/"
+        url = (
+            "https://old.reddit.com/.json"
+            if clean_path == "/"
+            else f"https://old.reddit.com{clean_path}.json"
+        )
+        return requests.get(
+            url,
+            params=req_params,
+            headers={"User-Agent": USER_AGENT},
+            timeout=12,
+        )
+
+    def _get_json_with_fallback(
+        self,
+        path: str,
+        params: Optional[Dict[str, Any]] = None,
+        allow_public: bool = True,
+    ) -> Tuple[Optional[Dict[str, Any]], int]:
+        """Executa GET OAuth validando JSON real e faz fallback para old.reddit.com."""
+        resp = self._oauth_get(path, params=params)
+        if resp.status_code == 200:
+            try:
+                payload = resp.json()
+                if isinstance(payload, dict):
+                    return payload, 200
+            except Exception:
+                pass
+        if allow_public:
+            pub_resp = self._public_json_get(path, params=params)
+            if pub_resp.status_code == 200:
+                try:
+                    payload = pub_resp.json()
+                    if isinstance(payload, dict):
+                        return payload, 200
+                except Exception:
+                    pass
+                if "/login" in (pub_resp.url or ""):
+                    return None, 401
+                return None, resp.status_code
+            return None, pub_resp.status_code
+        return None, resp.status_code
+
     def fetch_subreddit_posts(
         self,
         subreddit: str = "popular",
@@ -562,7 +617,7 @@ class RedditClient:
         after: Optional[str] = None,
         limit: int = 25,
     ) -> Tuple[List[PostItem], Optional[str]]:
-        """Busca postagens de um subreddit via oauth.reddit.com."""
+        """Busca postagens de um subreddit via oauth.reddit.com com fallback público."""
         clean_sub = subreddit.strip().lstrip("/").removeprefix("r/").strip("/")
         if not clean_sub:
             clean_sub = "popular"
@@ -570,7 +625,7 @@ class RedditClient:
         encoded_sub = quote(clean_sub, safe="")
         encoded_sort = quote(sort.strip(), safe="")
 
-        params: Dict[str, Any] = {"limit": limit}
+        params: Dict[str, Any] = {"limit": limit, "sr_detail": 1}
         if after:
             params["after"] = after
         if sort in ("top", "controversial"):
@@ -578,16 +633,21 @@ class RedditClient:
 
         if clean_sub == "home":
             path = f"/{encoded_sort}" if encoded_sort != "hot" else "/"
-            resp = self._oauth_get(path, params=params)
+            payload, status_code = self._get_json_with_fallback(
+                path, params=params, allow_public=False
+            )
         else:
-            resp = self._oauth_get(f"/r/{encoded_sub}/{encoded_sort}", params=params)
-
-        if resp.status_code != 200:
-            raise RuntimeError(
-                f"Não foi possível carregar r/{clean_sub} (HTTP {resp.status_code})"
+            path = f"/r/{encoded_sub}/{encoded_sort}"
+            payload, status_code = self._get_json_with_fallback(
+                path, params=params, allow_public=True
             )
 
-        data = resp.json().get("data", {})
+        if payload is None:
+            raise RuntimeError(
+                f"Não foi possível carregar r/{clean_sub} (HTTP {status_code})"
+            )
+
+        data = payload.get("data", {})
         children = data.get("children", [])
         next_after = data.get("after")
 
@@ -623,6 +683,15 @@ class RedditClient:
         upvote_ratio = float(d.get("upvote_ratio", 1.0) or 1.0)
         likes_raw = d.get("likes")
         likes: Optional[bool] = bool(likes_raw) if isinstance(likes_raw, bool) else None
+
+        sr_detail = d.get("sr_detail")
+        if isinstance(sr_detail, dict):
+            sr_icon = html.unescape(
+                str(sr_detail.get("community_icon") or sr_detail.get("icon_img") or "")
+            ).strip()
+            if sr_icon.startswith("http"):
+                with self._lock:
+                    self._sub_icon_cache[subreddit.lower()] = sr_icon
 
         # Extração de URL de vídeo nativo do Reddit (BUG-012 + CR-06 DASH/HLS)
         video_url = ""
@@ -720,13 +789,17 @@ class RedditClient:
                     if not preview_img:
                         preview_img = highres_img
 
-        # 3. URL direta de imagem
+        # 3. URL direta de imagem (suporta query string)
+        clean_url_path = url.split("?", 1)[0].lower()
         if not preview_img and any(
-            url.lower().endswith(ext)
+            clean_url_path.endswith(ext)
             for ext in (".jpg", ".jpeg", ".png", ".webp", ".gif")
         ):
             preview_img = url
             highres_img = url
+
+        if not preview_img and thumb and not is_self:
+            preview_img = thumb
 
         if not highres_img and preview_img:
             highres_img = preview_img
@@ -795,9 +868,9 @@ class RedditClient:
 
         try:
             encoded_sub = quote(clean_sub, safe="")
-            resp = self._oauth_get(f"/r/{encoded_sub}/about")
-            if resp.status_code == 200:
-                d = resp.json().get("data", {})
+            payload, _ = self._get_json_with_fallback(f"/r/{encoded_sub}/about")
+            if payload is not None:
+                d = payload.get("data", {})
                 icon = html.unescape(
                     str(d.get("community_icon") or d.get("icon_img") or "")
                 )
@@ -838,11 +911,12 @@ class RedditClient:
         if not query.strip():
             return []
         try:
-            resp = self._oauth_get(
-                "/subreddits/search", params={"q": query.strip(), "limit": limit}
+            search_params = {"q": query.strip(), "limit": limit}
+            payload, _ = self._get_json_with_fallback(
+                "/subreddits/search", params=search_params
             )
-            if resp.status_code == 200:
-                children = resp.json().get("data", {}).get("children", [])
+            if payload is not None:
+                children = payload.get("data", {}).get("children", [])
                 results: List[SubredditInfo] = []
                 for c in children:
                     d = c.get("data", {}) if isinstance(c, dict) else {}
@@ -888,23 +962,43 @@ class RedditClient:
             "q": query.strip(),
             "limit": limit,
             "sort": "relevance",
+            "sr_detail": 1,
         }
         if after:
             params["after"] = after
 
-        if subreddit and subreddit.lower() not in ("popular", "all"):
+        if subreddit and subreddit.lower() not in ("popular", "all", "home"):
             clean_sub = subreddit.strip().lstrip("/").removeprefix("r/").strip("/")
             encoded_sub = quote(clean_sub, safe="")
-            url = f"https://www.reddit.com/r/{encoded_sub}/search.rss"
+            search_path = f"/r/{encoded_sub}/search"
+            rss_url = f"https://www.reddit.com/r/{encoded_sub}/search.rss"
             params["restrict_sr"] = "on"
         else:
-            url = "https://www.reddit.com/search.rss"
+            search_path = "/search"
+            rss_url = "https://www.reddit.com/search.rss"
 
-        resp = self._session.get(url, params=params, timeout=12)
+        # 1. Tenta busca JSON pública (retorna PostItem completo com mídia, votos e comentários)
+        try:
+            json_resp = self._public_json_get(search_path, params=params)
+            if json_resp.status_code == 200:
+                data = json_resp.json().get("data", {})
+                children = data.get("children", [])
+                next_after = data.get("after")
+                posts = [
+                    self._parse_post_json(child.get("data") or {})
+                    for child in children
+                    if isinstance(child, dict) and child.get("kind") == "t3"
+                ]
+                return posts, next_after
+        except Exception:
+            pass
+
+        # 2. Fallback para feed Atom (.rss)
+        resp = self._session.get(rss_url, params=params, timeout=12)
         if resp.status_code == 429:
             time.sleep(0.8)
             self._ensure_session(force=True)
-            resp = self._session.get(url, params=params, timeout=12)
+            resp = self._session.get(rss_url, params=params, timeout=12)
 
         if resp.status_code != 200:
             raise RuntimeError(
@@ -1006,9 +1100,9 @@ class RedditClient:
             return []
         try:
             encoded_sub = quote(clean_sub, safe="")
-            resp = self._oauth_get(f"/r/{encoded_sub}/about/rules")
-            if resp.status_code == 200:
-                rules_raw = resp.json().get("rules", [])
+            payload, _ = self._get_json_with_fallback(f"/r/{encoded_sub}/about/rules")
+            if payload is not None:
+                rules_raw = payload.get("rules", [])
                 result: List[Dict[str, str]] = []
                 for idx, r in enumerate(rules_raw, start=1):
                     if not isinstance(r, dict):
@@ -1074,47 +1168,84 @@ class RedditClient:
                     item.children_ids.extend(sub_ids)
         return direct_ids
 
+    def _parse_comments_json_payload(
+        self, payload: Any, post: PostItem
+    ) -> Optional[List[CommentItem]]:
+        """Extrai post.selftext e achata a árvore de comentários de um payload JSON do Reddit."""
+        if not isinstance(payload, list) or len(payload) < 2:
+            return None
+        post_children = payload[0].get("data", {}).get("children", [])
+        if post_children and isinstance(post_children[0], dict):
+            pd = post_children[0].get("data") or {}
+            if not post.selftext and pd.get("selftext"):
+                post.selftext = html.unescape(str(pd.get("selftext", ""))).strip()
+        comment_children = payload[1].get("data", {}).get("children", [])
+        flat_comments: List[CommentItem] = []
+        self._flatten_comment_tree(
+            comment_children, post.author, flat_comments, depth=0
+        )
+        return flat_comments
+
     def fetch_post_comments(
         self, post: PostItem, limit: int = 80
     ) -> List[CommentItem]:
         """
-        Busca a árvore de comentários de um post via OAuth JSON (com depth, parent_id,
-        score, badges e replies aninhados) e fallback para feed Atom (.rss) (BUG-006).
+        Busca a árvore de comentários de um post via OAuth JSON, JSON público
+        (www.reddit.com/.../.json) e fallback para feed Atom (.rss) (BUG-006).
         """
         self._ensure_session()
         permalink = post.permalink or f"/r/{post.subreddit}/comments/{post.id}/"
         if permalink.startswith("http") and "reddit.com" in permalink:
             permalink = permalink.split("reddit.com", 1)[-1]
+        permalink = permalink.split("?", 1)[0]
         if not permalink.startswith("/"):
             permalink = "/" + permalink
         permalink = permalink.rstrip("/")
 
+        json_params: Dict[str, Any] = {
+            "limit": limit,
+            "depth": 10,
+            "sort": "confidence",
+            "raw_json": 1,
+        }
+
         # 1. Tentativa via OAuth JSON para preservar hierarquia completa (CR-05)
         try:
-            oauth_resp = self._oauth_get(
-                permalink, params={"limit": limit, "depth": 10, "sort": "confidence"}
-            )
+            oauth_resp = self._oauth_get(permalink, params=json_params)
             if oauth_resp.status_code == 200:
-                payload = oauth_resp.json()
-                if isinstance(payload, list) and len(payload) >= 2:
-                    # Atualiza selftext do post se vazio
-                    post_children = payload[0].get("data", {}).get("children", [])
-                    if post_children and isinstance(post_children[0], dict):
-                        pd = post_children[0].get("data") or {}
-                        if not post.selftext and pd.get("selftext"):
-                            post.selftext = html.unescape(str(pd.get("selftext", ""))).strip()
-                    comment_children = payload[1].get("data", {}).get("children", [])
-                    flat_comments: List[CommentItem] = []
-                    self._flatten_comment_tree(
-                        comment_children, post.author, flat_comments, depth=0
-                    )
-                    if flat_comments:
-                        return flat_comments
+                parsed = self._parse_comments_json_payload(oauth_resp.json(), post)
+                if parsed is not None:
+                    return parsed
         except Exception:
             pass
 
-        # 2. Fallback via feed Atom (.rss) com retry e backoff exponencial
-        url = f"https://www.reddit.com{permalink}/.rss"
+        # 2. Tentativa via JSON público (old.reddit.com, www.reddit.com e /comments/<id>.json)
+        fallback_urls = [
+            f"https://www.reddit.com{permalink}.json",
+        ]
+        if post.id:
+            fallback_urls.append(f"https://www.reddit.com/comments/{post.id}.json")
+
+        for json_resp_fn in [
+            lambda: self._public_json_get(permalink, params=json_params),
+            *[
+                (lambda u=u: self._session.get(u, params=json_params, timeout=12))
+                for u in fallback_urls
+            ],
+        ]:
+            try:
+                web_json_resp = json_resp_fn()
+                if web_json_resp.status_code == 200:
+                    parsed = self._parse_comments_json_payload(
+                        web_json_resp.json(), post
+                    )
+                    if parsed is not None:
+                        return parsed
+            except Exception:
+                pass
+
+        # 3. Fallback via feed Atom (.rss) com retry e backoff exponencial
+        url = f"https://www.reddit.com{permalink}.rss"
 
         resp: Optional[requests.Response] = None
         for attempt in range(3):
@@ -1181,21 +1312,150 @@ class RedditClient:
 
         return comments
 
-    def download_image(self, url: str) -> Optional[bytes]:
-        """Baixa bytes de uma imagem com cache LRU limitado em memória."""
-        if not url or not url.startswith("http"):
+    def fetch_user_avatar_url(self, username: str) -> str:
+        """Obtém e armazena em cache a URL da foto de perfil de um usuário."""
+        clean = (username or "").strip().removeprefix("u/").strip("/")
+        if not clean or clean in ("[deleted]", "AutoModerator"):
+            return ""
+        cache_key = clean.lower()
+        with self._lock:
+            if cache_key in self._user_avatar_cache:
+                self._user_avatar_cache.move_to_end(cache_key)
+                return self._user_avatar_cache[cache_key]
+
+        avatar_url = ""
+        try:
+            resp = self._session.get(
+                f"https://www.reddit.com/user/{quote(clean, safe='')}/about.json",
+                params={"raw_json": 1},
+                timeout=8,
+            )
+            if resp.status_code == 200:
+                d = resp.json().get("data") or {}
+                raw_icon = html.unescape(
+                    str(d.get("icon_img") or d.get("snoovatar_img") or "")
+                ).strip()
+                if raw_icon.startswith("http"):
+                    avatar_url = raw_icon
+        except Exception:
+            pass
+
+        with self._lock:
+            self._user_avatar_cache[cache_key] = avatar_url
+            while len(self._user_avatar_cache) > 500:
+                self._user_avatar_cache.popitem(last=False)
+        return avatar_url
+
+    def get_cached_subreddit_icon_bytes(self, subreddit: str) -> Optional[bytes]:
+        clean = (subreddit or "").strip().lstrip("/").removeprefix("r/").strip().lower()
+        with self._lock:
+            return self._sub_icon_bytes_cache.get(clean)
+
+    def get_cached_user_avatar_bytes(self, username: str) -> Optional[bytes]:
+        clean = (username or "").strip().removeprefix("u/").strip().lower()
+        with self._lock:
+            return self._user_avatar_bytes_cache.get(clean)
+
+    def fetch_user_avatar_bytes(self, username: str) -> Optional[bytes]:
+        clean = (username or "").strip().removeprefix("u/").strip().lower()
+        if not clean or clean in ("[deleted]", "automoderator", "reddit"):
             return None
         with self._lock:
-            cached = self._image_cache.get(url)
+            if clean in self._user_avatar_bytes_cache:
+                self._user_avatar_bytes_cache.move_to_end(clean)
+                return self._user_avatar_bytes_cache[clean]
+
+        url = self.fetch_user_avatar_url(clean)
+        data = self.download_image(url) if url else None
+        if data:
+            with self._lock:
+                self._user_avatar_bytes_cache[clean] = data
+                while len(self._user_avatar_bytes_cache) > 500:
+                    self._user_avatar_bytes_cache.popitem(last=False)
+        return data
+
+    def fetch_subreddit_icon_url(self, subreddit: str) -> str:
+        """Obtém e armazena em cache a URL do ícone de uma comunidade."""
+        clean = (subreddit or "").strip().lstrip("/").removeprefix("r/").strip("/")
+        if not clean or clean.lower() in ("popular", "all", "home", "search", "saved"):
+            return ""
+        cache_key = clean.lower()
+        with self._lock:
+            if cache_key in self._sub_icon_cache:
+                self._sub_icon_cache.move_to_end(cache_key)
+                return self._sub_icon_cache[cache_key]
+            cached_info = self._sub_cache.get(cache_key)
+            if cached_info and cached_info.icon_url:
+                self._sub_icon_cache[cache_key] = cached_info.icon_url
+                return cached_info.icon_url
+
+        icon_url = ""
+        try:
+            info = self.fetch_subreddit_info(clean)
+            if info.icon_url:
+                icon_url = info.icon_url
+        except Exception:
+            pass
+
+        with self._lock:
+            self._sub_icon_cache[cache_key] = icon_url
+            while len(self._sub_icon_cache) > 500:
+                self._sub_icon_cache.popitem(last=False)
+        return icon_url
+
+    def fetch_subreddit_icon_bytes(self, subreddit: str) -> Optional[bytes]:
+        clean = (subreddit or "").strip().lstrip("/").removeprefix("r/").strip().lower()
+        if not clean or clean in ("popular", "all", "home", "search", "saved"):
+            return None
+        with self._lock:
+            if clean in self._sub_icon_bytes_cache:
+                self._sub_icon_bytes_cache.move_to_end(clean)
+                return self._sub_icon_bytes_cache[clean]
+
+        url = self.fetch_subreddit_icon_url(clean)
+        data = self.download_image(url) if url else None
+        if data:
+            with self._lock:
+                self._sub_icon_bytes_cache[clean] = data
+                while len(self._sub_icon_bytes_cache) > 300:
+                    self._sub_icon_bytes_cache.popitem(last=False)
+        return data
+
+    def _get_image_session(self) -> requests.Session:
+        """Retorna uma sessão HTTP isolada por thread para download seguro de mídia."""
+        sess = getattr(self._img_thread_local, "session", None)
+        if sess is None:
+            sess = requests.Session()
+            sess.headers.update(
+                {
+                    "User-Agent": (
+                        "Mozilla/5.0 (X11; Linux x86_64; rv:132.0) "
+                        "Gecko/20100101 Firefox/132.0"
+                    ),
+                    "Accept": "image/avif,image/webp,image/png,image/jpeg,image/*,*/*;q=0.8",
+                }
+            )
+            self._img_thread_local.session = sess
+        return sess
+
+    def download_image(self, url: str) -> Optional[bytes]:
+        """Baixa bytes de uma imagem de forma thread-safe com cache LRU em memória."""
+        if not url or not url.startswith("http"):
+            return None
+        clean_url = html.unescape(url).strip()
+        with self._lock:
+            cached = self._image_cache.get(clean_url)
             if cached is not None:
-                self._image_cache.move_to_end(url)
+                self._image_cache.move_to_end(clean_url)
                 return cached
 
         try:
-            resp = self._session.get(url, timeout=10)
-            if resp.status_code == 200 and resp.content:
+            sess = self._get_image_session()
+            resp = sess.get(clean_url, timeout=12, allow_redirects=True)
+            ctype = (resp.headers.get("Content-Type") or "").lower()
+            if resp.status_code == 200 and resp.content and not ctype.startswith("text/html"):
                 with self._lock:
-                    self._image_cache[url] = resp.content
+                    self._image_cache[clean_url] = resp.content
                     while len(self._image_cache) > 250:
                         self._image_cache.popitem(last=False)
                 return resp.content

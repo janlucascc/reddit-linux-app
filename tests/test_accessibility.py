@@ -126,7 +126,7 @@ def run_architectural_checks() -> bool:
     app = QApplication.instance() or QApplication(sys.argv)
 
     # CR-03: Zero chamadas inline setStyleSheet() nos arquivos de componentes
-    for fname in ("widgets.py", "post_dialog.py", "browser_auth.py", "main.py"):
+    for fname in ("widgets.py", "post_dialog.py", "browser_auth.py", "login_dialog.py", "main.py"):
         src = (ROOT / fname).read_text(encoding="utf-8")
         assert ".setStyleSheet(" not in src, f"CR-03 violado em {fname}"
     print("[PASS] CR-03: Zero chamadas .setStyleSheet() inline em widgets/dialogs/main")

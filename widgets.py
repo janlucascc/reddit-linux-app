@@ -9,6 +9,7 @@ Implementa:
 """
 
 from __future__ import annotations
+import json
 import re
 import shutil
 import subprocess
@@ -454,6 +455,81 @@ def create_reddit_vector_icon(
         clapper.arcMoveTo(QRectF(w * 0.41, h * 0.75, w * 0.18, h * 0.14), 180)
         clapper.arcTo(QRectF(w * 0.41, h * 0.75, w * 0.18, h * 0.14), 180, 180)
         painter.drawPath(clapper)
+    elif it == "share":
+        # Seta curva minimalista estilo Shreddit
+        arrow = QPainterPath()
+        arrow.moveTo(w * 0.16, h * 0.78)
+        arrow.quadTo(w * 0.24, h * 0.42, w * 0.62, h * 0.42)
+        arrow.lineTo(w * 0.82, h * 0.42)
+        painter.drawPath(arrow)
+        head = QPainterPath()
+        head.moveTo(w * 0.60, h * 0.20)
+        head.lineTo(w * 0.84, h * 0.42)
+        head.lineTo(w * 0.60, h * 0.64)
+        painter.drawPath(head)
+    elif it == "play":
+        # Triângulo preenchido suave
+        painter.setPen(Qt.PenStyle.NoPen)
+        painter.setBrush(color)
+        tri = QPainterPath()
+        tri.moveTo(w * 0.28, h * 0.18)
+        tri.lineTo(w * 0.82, h * 0.50)
+        tri.lineTo(w * 0.28, h * 0.82)
+        tri.closeSubpath()
+        painter.drawPath(tri)
+    elif it == "bookmark_filled":
+        painter.setPen(Qt.PenStyle.NoPen)
+        painter.setBrush(color)
+        bm = QPainterPath()
+        bm.moveTo(w * 0.26, h * 0.16)
+        bm.lineTo(w * 0.74, h * 0.16)
+        bm.lineTo(w * 0.74, h * 0.84)
+        bm.lineTo(w * 0.50, h * 0.66)
+        bm.lineTo(w * 0.26, h * 0.84)
+        bm.closeSubpath()
+        painter.drawPath(bm)
+    elif it == "check":
+        chk = QPainterPath()
+        chk.moveTo(w * 0.18, h * 0.52)
+        chk.lineTo(w * 0.42, h * 0.76)
+        chk.lineTo(w * 0.84, h * 0.26)
+        painter.drawPath(chk)
+    elif it in ("refresh", "restore", "undo"):
+        arc_rect = QRectF(w * 0.18, h * 0.18, w * 0.64, h * 0.64)
+        path = QPainterPath()
+        path.arcMoveTo(arc_rect, 45)
+        path.arcTo(arc_rect, 45, 275)
+        painter.drawPath(path)
+        head = QPainterPath()
+        head.moveTo(w * 0.52, h * 0.14)
+        head.lineTo(w * 0.74, h * 0.20)
+        head.lineTo(w * 0.64, h * 0.40)
+        painter.drawPath(head)
+    elif it in ("globe", "translate_globe"):
+        painter.drawEllipse(QRectF(w * 0.14, h * 0.14, w * 0.72, h * 0.72))
+        painter.drawLine(int(w * 0.14), int(h * 0.50), int(w * 0.86), int(h * 0.50))
+        painter.drawLine(int(w * 0.50), int(h * 0.14), int(w * 0.50), int(h * 0.86))
+        painter.drawEllipse(QRectF(w * 0.28, h * 0.14, w * 0.44, h * 0.72))
+    elif it in ("card", "cards", "card_view"):
+        painter.drawRoundedRect(
+            QRectF(w * 0.16, h * 0.20, w * 0.68, h * 0.60), w * 0.12, h * 0.12
+        )
+        painter.drawLine(int(w * 0.16), int(h * 0.44), int(w * 0.84), int(h * 0.44))
+        painter.drawLine(int(w * 0.28), int(h * 0.60), int(w * 0.72), int(h * 0.60))
+    elif it in ("list", "compact_view"):
+        painter.drawLine(int(w * 0.38), int(h * 0.28), int(w * 0.82), int(h * 0.28))
+        painter.drawLine(int(w * 0.38), int(h * 0.50), int(w * 0.82), int(h * 0.50))
+        painter.drawLine(int(w * 0.38), int(h * 0.72), int(w * 0.82), int(h * 0.72))
+        painter.setPen(Qt.PenStyle.NoPen)
+        painter.setBrush(color)
+        r = max(1.5, w * 0.05)
+        painter.drawEllipse(QRectF(w * 0.22 - r, h * 0.28 - r, r * 2, r * 2))
+        painter.drawEllipse(QRectF(w * 0.22 - r, h * 0.50 - r, r * 2, r * 2))
+        painter.drawEllipse(QRectF(w * 0.22 - r, h * 0.72 - r, r * 2, r * 2))
+    elif it in ("menu", "hamburger"):
+        painter.drawLine(int(w * 0.18), int(h * 0.30), int(w * 0.82), int(h * 0.30))
+        painter.drawLine(int(w * 0.18), int(h * 0.50), int(w * 0.82), int(h * 0.50))
+        painter.drawLine(int(w * 0.18), int(h * 0.70), int(w * 0.82), int(h * 0.70))
     else:
         painter.drawEllipse(QRectF(w * 0.20, h * 0.20, w * 0.60, h * 0.60))
 
@@ -694,8 +770,42 @@ class RedditLogoWidget(QWidget):
         painter.end()
 
 
+def _paint_circular_pixmap(
+    painter: QPainter, w: float, h: float, pixmap: QPixmap
+) -> None:
+    """Desenha um QPixmap recortado em círculo perfeito com anti-aliasing e High-DPI."""
+    painter.save()
+    clip = QPainterPath()
+    clip.addEllipse(QRectF(0, 0, w, h))
+    painter.setClipPath(clip)
+    scale = 2
+    target_px = int(max(w, h) * scale)
+    scaled = pixmap.scaled(
+        target_px,
+        target_px,
+        Qt.AspectRatioMode.KeepAspectRatioByExpanding,
+        Qt.TransformationMode.SmoothTransformation,
+    )
+    scaled.setDevicePixelRatio(scale)
+    painter.drawPixmap(0, 0, scaled)
+    painter.restore()
+
+
 class CommunityAvatarWidget(QWidget):
-    """Ícone circular colorido para identificar uma comunidade r/."""
+    """Ícone circular para identificar uma comunidade r/ (com foto real quando disponível)."""
+
+    _avatar_provider: Optional[
+        Callable[[str, Callable[[Optional[bytes]], None]], None]
+    ] = None
+
+    @classmethod
+    def set_avatar_provider(
+        cls,
+        provider: Optional[
+            Callable[[str, Callable[[Optional[bytes]], None]], None]
+        ],
+    ) -> None:
+        cls._avatar_provider = provider
 
     def __init__(
         self, name: str, size: int = 24, parent: Optional[QWidget] = None
@@ -703,17 +813,40 @@ class CommunityAvatarWidget(QWidget):
         super().__init__(parent)
         self._name = name.removeprefix("r/").strip() or "R"
         self._color = QColor(color_for_name(self._name))
+        self._pixmap: Optional[QPixmap] = None
         self.setFixedSize(size, size)
         ThemeManager.instance().theme_changed.connect(self._on_theme_changed)
+        self._request_avatar()
 
     def _on_theme_changed(self, _mode: str) -> None:
         if isValid(self):
             self.update()
 
+    def _request_avatar(self) -> None:
+        if not self._avatar_provider:
+            return
+        clean = self._name.removeprefix("r/").strip().lower()
+        if not clean or clean in ("popular", "all", "home", "search", "saved", "r"):
+            return
+        self._avatar_provider(clean, self.set_image_bytes)
+
     def set_community_name(self, name: str) -> None:
-        self._name = name.removeprefix("r/").strip() or "R"
+        clean = name.removeprefix("r/").strip() or "R"
+        if clean.lower() == self._name.lower() and self._pixmap is not None:
+            return
+        self._name = clean
         self._color = QColor(color_for_name(self._name))
+        self._pixmap = None
+        self._request_avatar()
         if isValid(self):
+            self.update()
+
+    def set_image_bytes(self, raw_bytes: Optional[bytes]) -> None:
+        if not raw_bytes or not isValid(self):
+            return
+        pm = QPixmap()
+        if pm.loadFromData(raw_bytes) and not pm.isNull():
+            self._pixmap = pm
             self.update()
 
     def paintEvent(self, event) -> None:
@@ -722,6 +855,11 @@ class CommunityAvatarWidget(QWidget):
         painter.setRenderHint(QPainter.RenderHint.Antialiasing, True)
         w = float(self.width())
         h = float(self.height())
+
+        if self._pixmap is not None and not self._pixmap.isNull():
+            _paint_circular_pixmap(painter, w, h, self._pixmap)
+            painter.end()
+            return
 
         painter.setPen(Qt.PenStyle.NoPen)
         painter.setBrush(self._color)
@@ -742,11 +880,23 @@ class CommunityAvatarWidget(QWidget):
 
 class UserAvatarWidget(QWidget):
     """
-    Avatar circular colorido com silhueta minimalista de usuário/Snoo (CR-03).
-    Gera cor determinística estável a partir do nome do autor.
+    Avatar circular de usuário (CR-03): exibe a foto real do perfil quando
+    carregada e usa cor determinística + silhueta Snoo como fallback instantâneo.
     """
 
     clicked = Signal()
+    _avatar_provider: Optional[
+        Callable[[str, Callable[[Optional[bytes]], None]], None]
+    ] = None
+
+    @classmethod
+    def set_avatar_provider(
+        cls,
+        provider: Optional[
+            Callable[[str, Callable[[Optional[bytes]], None]], None]
+        ],
+    ) -> None:
+        cls._avatar_provider = provider
 
     def __init__(
         self, author: str, size: int = 24, parent: Optional[QWidget] = None
@@ -754,18 +904,41 @@ class UserAvatarWidget(QWidget):
         super().__init__(parent)
         self._author = (author or "reddit").strip()
         self._color = QColor(color_for_name(self._author))
+        self._pixmap: Optional[QPixmap] = None
         self.setFixedSize(size, size)
         self.setCursor(QCursor(Qt.CursorShape.PointingHandCursor))
         ThemeManager.instance().theme_changed.connect(self._on_theme_changed)
+        self._request_avatar()
 
     def _on_theme_changed(self, _mode: str) -> None:
         if isValid(self):
             self.update()
 
+    def _request_avatar(self) -> None:
+        if not self._avatar_provider:
+            return
+        clean = self._author.removeprefix("u/").strip().lower()
+        if not clean or clean in ("[deleted]", "automoderator", "reddit"):
+            return
+        self._avatar_provider(clean, self.set_image_bytes)
+
     def set_author(self, author: str) -> None:
-        self._author = (author or "reddit").strip()
+        clean = (author or "reddit").strip()
+        if clean.lower() == self._author.lower() and self._pixmap is not None:
+            return
+        self._author = clean
         self._color = QColor(color_for_name(self._author))
+        self._pixmap = None
+        self._request_avatar()
         if isValid(self):
+            self.update()
+
+    def set_image_bytes(self, raw_bytes: Optional[bytes]) -> None:
+        if not raw_bytes or not isValid(self):
+            return
+        pm = QPixmap()
+        if pm.loadFromData(raw_bytes) and not pm.isNull():
+            self._pixmap = pm
             self.update()
 
     def mousePressEvent(self, event) -> None:
@@ -781,6 +954,11 @@ class UserAvatarWidget(QWidget):
         painter.setRenderHint(QPainter.RenderHint.Antialiasing, True)
         w = float(self.width())
         h = float(self.height())
+
+        if self._pixmap is not None and not self._pixmap.isNull():
+            _paint_circular_pixmap(painter, w, h, self._pixmap)
+            painter.end()
+            return
 
         # Fundo circular com cor própria do usuário
         painter.setPen(Qt.PenStyle.NoPen)
@@ -1289,6 +1467,8 @@ class PostCardWidget(QFrame):
         self._view_mode = view_mode
         self._is_visited = is_visited
         self._raw_image_bytes: Optional[bytes] = None
+        self._on_request_image = on_request_image
+        self._fallback_image_tried: bool = False
         self.setProperty("class", "PostCard")
         self.setCursor(QCursor(Qt.CursorShape.PointingHandCursor))
 
@@ -1308,8 +1488,8 @@ class PostCardWidget(QFrame):
         header_row = QHBoxLayout()
         header_row.setSpacing(6)
 
-        avatar = CommunityAvatarWidget(post.subreddit, size=24)
-        header_row.addWidget(avatar)
+        self.avatar = CommunityAvatarWidget(post.subreddit, size=24)
+        header_row.addWidget(self.avatar)
 
         btn_sub = QPushButton(post.subreddit_prefixed)
         btn_sub.setProperty("class", "SubredditLink")
@@ -1491,16 +1671,19 @@ class PostCardWidget(QFrame):
         actions_row.addWidget(self.vote_pill)
 
         # Pílula de Comentários
-        comm_btn = UiSkillsButton(f"💬  {post.formatted_comments}")
-        comm_btn.setProperty("class", "PillButton")
-        comm_btn.setFixedHeight(32)
-        comm_btn.setToolTip("Abrir postagem e ler comentários")
-        comm_btn.clicked.connect(lambda: self._emit_open_post())
-        actions_row.addWidget(comm_btn)
+        self.comm_btn = UiSkillsButton(f" {post.formatted_comments}")
+        self.comm_btn.setProperty("class", "PillButton")
+        self.comm_btn.setIcon(create_reddit_vector_icon("chat", size=16))
+        self.comm_btn.setIconSize(QSize(16, 16))
+        self.comm_btn.setFixedHeight(32)
+        self.comm_btn.setToolTip("Abrir postagem e ler comentários")
+        self.comm_btn.clicked.connect(lambda: self._emit_open_post())
+        actions_row.addWidget(self.comm_btn)
 
-        # Pílula de Tradução / Repost (🔄 na Imagem 3)
+        # Pílula de Tradução
         self.translate_btn = UiSkillsButton()
         self.translate_btn.setProperty("class", "TranslateButton")
+        self.translate_btn.setIconSize(QSize(16, 16))
         self.translate_btn.setFixedHeight(32)
         self.translate_btn.clicked.connect(
             lambda: self.translate_post_requested.emit(self.post, self)
@@ -1508,27 +1691,38 @@ class PostCardWidget(QFrame):
         self._sync_translate_button()
         actions_row.addWidget(self.translate_btn)
 
-        # Pílula de Compartilhar (↗ Compartilhar na Imagem 3)
-        share_btn = UiSkillsButton("↗ Compartilhar")
-        share_btn.setProperty("class", "PillButton")
-        share_btn.setFixedHeight(32)
-        share_btn.clicked.connect(lambda: self._copy_link(share_btn))
-        actions_row.addWidget(share_btn)
+        # Pílula de Compartilhar
+        self.share_btn = UiSkillsButton(" Compartilhar")
+        self.share_btn.setProperty("class", "PillButton")
+        self.share_btn.setIcon(create_reddit_vector_icon("share", size=16))
+        self.share_btn.setIconSize(QSize(16, 16))
+        self.share_btn.setFixedHeight(32)
+        self.share_btn.clicked.connect(lambda: self._copy_link(self.share_btn))
+        actions_row.addWidget(self.share_btn)
 
         # Botão Salvar
         self.save_btn = UiSkillsButton()
         self.save_btn.setProperty("class", "PillButton")
+        self.save_btn.setIconSize(QSize(16, 16))
         self.save_btn.setFixedHeight(32)
         self._sync_save_button()
         self.save_btn.clicked.connect(self._on_save_clicked)
         actions_row.addWidget(self.save_btn)
 
+        self.play_btn: Optional[UiSkillsButton] = None
         if post.is_video:
-            play_btn = UiSkillsButton("▶ Assistir")
-            play_btn.setProperty("class", "PillButtonAccent")
-            play_btn.setFixedHeight(32)
-            play_btn.clicked.connect(self._open_in_app_video_player)
-            actions_row.addWidget(play_btn)
+            tokens = ThemeManager.instance().tokens
+            self.play_btn = UiSkillsButton(" Assistir")
+            self.play_btn.setProperty("class", "PillButtonAccent")
+            self.play_btn.setIcon(
+                create_reddit_vector_icon("play", color_hex=tokens.text_inverse, size=14)
+            )
+            self.play_btn.setIconSize(QSize(14, 14))
+            self.play_btn.setFixedHeight(32)
+            self.play_btn.clicked.connect(self._open_in_app_video_player)
+            actions_row.addWidget(self.play_btn)
+
+        ThemeManager.instance().theme_changed.connect(self._sync_action_icons)
 
         actions_row.addStretch(1)
         main_layout.addLayout(actions_row)
@@ -1626,11 +1820,18 @@ class PostCardWidget(QFrame):
     def _sync_translate_button(self) -> None:
         if not isValid(self) or not isValid(self.translate_btn):
             return
+        tokens = ThemeManager.instance().tokens
         if self.post.show_translated:
-            self.translate_btn.setText("🔄 Original")
+            self.translate_btn.setText(" Original")
+            self.translate_btn.setIcon(
+                create_reddit_vector_icon("translate", color_hex=tokens.action_link, size=16)
+            )
             self.translate_btn.setProperty("translated", "true")
         else:
-            self.translate_btn.setText("🔄 Traduzir")
+            self.translate_btn.setText(" Traduzir")
+            self.translate_btn.setIcon(
+                create_reddit_vector_icon("translate", color_hex=tokens.text_primary, size=16)
+            )
             self.translate_btn.setProperty("translated", "false")
         self.translate_btn.style().unpolish(self.translate_btn)
         self.translate_btn.style().polish(self.translate_btn)
@@ -1638,11 +1839,44 @@ class PostCardWidget(QFrame):
     def _sync_save_button(self) -> None:
         if not isValid(self) or not isValid(self.save_btn):
             return
+        tokens = ThemeManager.instance().tokens
         if self.is_saved:
-            self.save_btn.setText("★ Salvo")
+            self.save_btn.setText(" Salvo")
+            self.save_btn.setIcon(
+                create_reddit_vector_icon(
+                    "bookmark_filled", color_hex=tokens.brand_accent, size=16
+                )
+            )
+            self.save_btn.setProperty("saved", "true")
+            self.save_btn.setToolTip("Remover dos salvos")
         else:
-            self.save_btn.setText("🔖")
+            self.save_btn.setText("")
+            self.save_btn.setIcon(
+                create_reddit_vector_icon("bookmark", color_hex=tokens.text_primary, size=16)
+            )
+            self.save_btn.setProperty("saved", "false")
             self.save_btn.setToolTip("Salvar postagem")
+        self.save_btn.style().unpolish(self.save_btn)
+        self.save_btn.style().polish(self.save_btn)
+
+    def _sync_action_icons(self, _mode: str = "") -> None:
+        if not isValid(self):
+            return
+        tokens = ThemeManager.instance().tokens
+        if hasattr(self, "comm_btn") and isValid(self.comm_btn):
+            self.comm_btn.setIcon(
+                create_reddit_vector_icon("chat", color_hex=tokens.text_primary, size=16)
+            )
+        if hasattr(self, "share_btn") and isValid(self.share_btn):
+            self.share_btn.setIcon(
+                create_reddit_vector_icon("share", color_hex=tokens.text_primary, size=16)
+            )
+        if self.play_btn is not None and isValid(self.play_btn):
+            self.play_btn.setIcon(
+                create_reddit_vector_icon("play", color_hex=tokens.text_inverse, size=14)
+            )
+        self._sync_translate_button()
+        self._sync_save_button()
 
     def _on_vote_clicked(self, direction: int) -> None:
         if self._vote_state == direction:
@@ -1690,11 +1924,19 @@ class PostCardWidget(QFrame):
         if clipboard:
             clipboard.setText(full_url)
         if isValid(btn):
-            btn.setText("✓ Copiado!")
-            QTimer.singleShot(
-                2000,
-                lambda: btn.setText("↗ Compartilhar") if isValid(btn) else None,
+            tokens = ThemeManager.instance().tokens
+            btn.setText(" Copiado")
+            btn.setIcon(
+                create_reddit_vector_icon("check", color_hex=tokens.badge_mod, size=16)
             )
+            def _restore() -> None:
+                if isValid(btn):
+                    t = ThemeManager.instance().tokens
+                    btn.setText(" Compartilhar")
+                    btn.setIcon(
+                        create_reddit_vector_icon("share", color_hex=t.text_primary, size=16)
+                    )
+            QTimer.singleShot(2000, _restore)
 
     def _on_title_clicked(self, event) -> None:
         if event.button() == Qt.MouseButton.LeftButton:
@@ -1723,14 +1965,31 @@ class PostCardWidget(QFrame):
         """Atualiza a imagem mantendo altura estável (CR-04) e proteção Shiboken (BUG-001)."""
         if not isValid(self) or not isValid(self.image_label):
             return
-        self._raw_image_bytes = raw_bytes
-        pix = create_rounded_pixmap(raw_bytes, max_width=640, max_height=380, radius=10)
-        if pix:
-            logical_h = int(pix.height() / max(1.0, pix.devicePixelRatio()))
-            self.image_label.setText("")
-            self.image_label.setPixmap(pix)
-            self.image_label.setFixedHeight(max(140, logical_h))
-        elif isValid(self.image_container):
+        if raw_bytes:
+            self._raw_image_bytes = raw_bytes
+            avail_w = (
+                max(320, min(720, self.width() - 40))
+                if self.width() > 200
+                else 640
+            )
+            pix = create_rounded_pixmap(
+                raw_bytes, max_width=avail_w, max_height=420, radius=10
+            )
+            if pix:
+                logical_h = int(pix.height() / max(1.0, pix.devicePixelRatio()))
+                self.image_label.setText("")
+                self.image_label.setPixmap(pix)
+                self.image_label.setFixedHeight(max(140, logical_h))
+                return
+
+        if not self._fallback_image_tried and self._on_request_image:
+            self._fallback_image_tried = True
+            for alt_url in (self.post.highres_image_url, self.post.thumbnail_url):
+                if alt_url and alt_url != self.post.preview_image_url:
+                    self._on_request_image(alt_url, self.set_preview_image)
+                    return
+
+        if isValid(self.image_container):
             self.image_container.setVisible(False)
 
     def set_translating_state(self, loading: bool) -> None:
@@ -1775,8 +2034,8 @@ class RecentPostItemWidget(QFrame):
 
         top_row = QHBoxLayout()
         top_row.setSpacing(6)
-        avatar = CommunityAvatarWidget(post.subreddit, size=20)
-        top_row.addWidget(avatar)
+        self.avatar = CommunityAvatarWidget(post.subreddit, size=20)
+        top_row.addWidget(self.avatar)
 
         sub_btn = QPushButton(f"r/{post.subreddit}")
         sub_btn.setProperty("class", "SubredditLink")
@@ -2492,6 +2751,9 @@ class EmbeddedVideoWidget(QFrame):
         bg_hex = tokens.bg_canvas
         play_src = video_url or hls_url
         audio_src = resolve_reddit_audio_url(video_url)
+        js_hls_url = json.dumps(hls_url)
+        js_video_url = json.dumps(play_src)
+        js_audio_url = json.dumps(audio_src)
 
         html_doc = f"""<!DOCTYPE html>
 <html>
@@ -2523,9 +2785,9 @@ class EmbeddedVideoWidget(QFrame):
   <script>
     const video = document.getElementById('rvid');
     const audio = document.getElementById('raud');
-    const hlsUrl = '{hls_url}';
-    const videoUrl = '{play_src}';
-    const audioUrl = '{audio_src}';
+    const hlsUrl = {js_hls_url};
+    const videoUrl = {js_video_url};
+    const audioUrl = {js_audio_url};
 
     let hlsActive = false;
 
@@ -2542,6 +2804,13 @@ class EmbeddedVideoWidget(QFrame):
         }});
         video.addEventListener('pause', () => {{
           audio.pause();
+        }});
+        video.addEventListener('waiting', () => {{
+          audio.pause();
+        }});
+        video.addEventListener('playing', () => {{
+          audio.currentTime = video.currentTime;
+          audio.play().catch(() => {{}});
         }});
         video.addEventListener('seeking', () => {{
           audio.currentTime = video.currentTime;

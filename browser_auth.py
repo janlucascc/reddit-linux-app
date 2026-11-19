@@ -106,8 +106,10 @@ def _extract_chromium_cookies(db_path: Path, app_name: str) -> Dict[str, str]:
             cipher = Cipher(algorithms.AES(key), modes.CBC(iv), backend=default_backend())
             decryptor = cipher.decryptor()
             dec = decryptor.update(raw_payload) + decryptor.finalize()
+            if not dec:
+                continue
             pad = dec[-1]
-            val_bytes = dec[:-pad]
+            val_bytes = dec[:-pad] if 1 <= pad <= 16 else dec
             if is_v11:
                 val_bytes = val_bytes[32:]  # Descarta cabeçalho HMAC de 32 bytes do v11
             val = val_bytes.decode("utf-8", errors="ignore").strip()

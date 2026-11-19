@@ -37,6 +37,7 @@ class CreatePostDialog(QDialog):
     """Diálogo modal completo para compor e publicar uma nova postagem no Reddit."""
 
     post_created = Signal(str, str)  # (subreddit, post_url)
+    _submit_finished = Signal(str, bool, str, object)  # (subreddit, ok, msg, post_url)
 
     def __init__(
         self,
@@ -51,6 +52,7 @@ class CreatePostDialog(QDialog):
         self.setFixedSize(680, 640)
         self.setModal(True)
         self.setAttribute(Qt.WidgetAttribute.WA_DeleteOnClose, True)
+        self._submit_finished.connect(self._on_submit_finished)
 
         self._current_tab: str = "self"  # "self" | "media" | "link" | "poll"
         self._preview_active: bool = False
@@ -540,21 +542,21 @@ class CreatePostDialog(QDialog):
 
         def _run():
             ok, msg, post_url = _worker()
-
-            def _done():
-                if not isValid(self):
-                    return
-                if ok:
-                    self._set_status(
-                        "✓ Publicado com sucesso no Reddit!", "status_ok"
-                    )
-                    self.post_created.emit(raw_sub, post_url or "")
-                    QTimer.singleShot(700, self.accept)
-                else:
-                    self._set_status(f"⚠️ {msg}", "status_error")
-                    self.btn_submit.setEnabled(True)
-                    self.btn_cancel.setEnabled(True)
-
-            QTimer.singleShot(0, _done)
+            if isValid(self):
+                self._submit_finished.emit(raw_sub, ok, msg, post_url)
 
         threading.Thread(target=_run, daemon=True).start()
+
+    def _on_submit_finished(
+        self, raw_sub: str, ok: bool, msg: str, post_url: object
+    ) -> None:
+        if not isValid(self):
+            return
+        if ok:
+            self._set_status("✓ Publicado com sucesso no Reddit!", "status_ok")
+            self.post_created.emit(raw_sub, str(post_url or ""))
+            QTimer.singleShot(700, lambda: self.accept() if isValid(self) else None)
+        else:
+            self._set_status(f"⚠️ {msg}", "status_error")
+            self.btn_submit.setEnabled(True)
+            self.btn_cancel.setEnabled(True)

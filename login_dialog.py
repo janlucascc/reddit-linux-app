@@ -13,6 +13,7 @@ from PySide6.QtCore import QSize, QTimer, QUrl, Qt, Signal
 from PySide6.QtGui import QCursor
 from PySide6.QtWebEngineCore import (
     QWebEngineCookieStore,
+    QWebEnginePage,
     QWebEngineProfile,
 )
 from PySide6.QtWebEngineWidgets import QWebEngineView
@@ -25,6 +26,7 @@ from PySide6.QtWidgets import (
     QVBoxLayout,
     QWidget,
 )
+from shiboken6 import isValid
 
 from widgets import RedditLogoWidget
 
@@ -54,55 +56,47 @@ class RedditLoginDialog(QDialog):
 
         # Barra Superior
         top_bar = QFrame()
-        top_bar.setStyleSheet(
-            "background-color: #0E1113; border-bottom: 1px solid #24373E; padding: 10px 16px;"
-        )
+        top_bar.setObjectName("TopHeader")
         tb_layout = QHBoxLayout(top_bar)
-        tb_layout.setContentsMargins(4, 4, 4, 4)
+        tb_layout.setContentsMargins(16, 10, 16, 10)
         tb_layout.setSpacing(10)
 
         logo = RedditLogoWidget(size=28)
         tb_layout.addWidget(logo)
 
         lbl_title = QLabel("Entrar com sua conta do Reddit")
-        lbl_title.setStyleSheet("font-size: 14px; font-weight: 700; color: #F2F4F5;")
+        lbl_title.setProperty("role", "subtitle")
         tb_layout.addWidget(lbl_title, 1)
 
         btn_close = QPushButton("✕")
+        btn_close.setProperty("class", "IconButton")
         btn_close.setCursor(QCursor(Qt.CursorShape.PointingHandCursor))
         btn_close.setFixedSize(28, 28)
-        btn_close.setStyleSheet(
-            "QPushButton { background: transparent; color: #8BA2AD; border: none; font-size: 14px; font-weight: 700; border-radius: 14px; }"
-            "QPushButton:hover { background-color: #24373E; color: #F2F4F5; }"
-        )
         btn_close.clicked.connect(self.reject)
         tb_layout.addWidget(btn_close)
         layout.addWidget(top_bar)
 
         # Status / Feedback
         self.status_bar = QFrame()
-        self.status_bar.setStyleSheet(
-            "background-color: #131F23; border-bottom: 1px solid #1B2B30; padding: 6px 16px;"
-        )
+        self.status_bar.setObjectName("MediaCodecFallbackBanner")
         sb_layout = QHBoxLayout(self.status_bar)
-        sb_layout.setContentsMargins(6, 2, 6, 2)
+        sb_layout.setContentsMargins(16, 6, 16, 6)
         self.lbl_status = QLabel(
             "🔒 Conectando com segurança ao Reddit. Entre normalmente com usuário/senha ou Google."
         )
         self.lbl_status.setWordWrap(True)
-        self.lbl_status.setStyleSheet("color: #8BA2AD; font-size: 11px;")
+        self.lbl_status.setProperty("role", "caption")
         sb_layout.addWidget(self.lbl_status)
         layout.addWidget(self.status_bar)
 
-        # Visualizador WebEngine Oficial
+        # Visualizador WebEngine Oficial com perfil dedicado
         self.profile = QWebEngineProfile("reddit_login_profile", self)
         self.cookie_store: QWebEngineCookieStore = self.profile.cookieStore()
         self.cookie_store.cookieAdded.connect(self._on_cookie_added)
 
         self.web_view = QWebEngineView()
-        self.web_page = self.web_view.page()
-        # Aplica o perfil dedicado com isolamento
-        self.web_view.setPage(self.web_view.page())
+        self.web_page = QWebEnginePage(self.profile, self.web_view)
+        self.web_view.setPage(self.web_page)
         layout.addWidget(self.web_view, 1)
 
         self.web_view.urlChanged.connect(self._on_url_changed)
@@ -129,7 +123,7 @@ class RedditLoginDialog(QDialog):
             QTimer.singleShot(1000, self._check_successful_login)
 
     def _check_successful_login(self) -> None:
-        if self._login_detected:
+        if not isValid(self) or self._login_detected:
             return
 
         has_auth_cookie = (
@@ -138,8 +132,9 @@ class RedditLoginDialog(QDialog):
         )
         if has_auth_cookie:
             self._login_detected = True
-            self.lbl_status.setText("✓ Login identificado com sucesso! Conectando...")
-            self.lbl_status.setStyleSheet("color: #46D160; font-size: 12px; font-weight: 700;")
+            if isValid(self.lbl_status):
+                self.lbl_status.setText("✓ Login identificado com sucesso! Conectando...")
+                self.lbl_status.setProperty("role", "subtitle")
 
             # Salva cookies em arquivo seguro local
             try:
@@ -151,4 +146,4 @@ class RedditLoginDialog(QDialog):
                 pass
 
             self.login_completed.emit(dict(self._captured_cookies))
-            QTimer.singleShot(600, self.accept)
+            QTimer.singleShot(600, lambda: self.accept() if isValid(self) else None)

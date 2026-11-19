@@ -55,6 +55,7 @@ from PySide6.QtWidgets import (
     QPlainTextEdit,
     QPushButton,
     QScrollArea,
+    QSizePolicy,
     QSplitter,
     QStackedWidget,
     QVBoxLayout,
@@ -243,6 +244,10 @@ class RedditLinuxWindow(QMainWindow):
         self.current_sub_info: Optional[SubredditInfo] = None
         self._gallery_index: int = 0
         self._detail_raw_image: Optional[bytes] = None
+        self._in_flight_sub_avatars: Dict[str, List[Callable[[Optional[bytes]], None]]] = {}
+        self._in_flight_user_avatars: Dict[str, List[Callable[[Optional[bytes]], None]]] = {}
+        CommunityAvatarWidget.set_avatar_provider(self._provide_community_avatar)
+        UserAvatarWidget.set_avatar_provider(self._provide_user_avatar)
         self.current_user: Optional[Dict[str, Any]] = self.client.fetch_current_user()
         self.user_subscribed_subs: set[str] = set()
         if self.current_user:
@@ -308,6 +313,10 @@ class RedditLinuxWindow(QMainWindow):
     def closeEvent(self, event: QCloseEvent) -> None:
         """Encerramento limpo cancelando tarefas pendentes no QThreadPool (BUG-013)."""
         self._is_closing = True
+        self._in_flight_sub_avatars.clear()
+        self._in_flight_user_avatars.clear()
+        CommunityAvatarWidget.set_avatar_provider(None)
+        UserAvatarWidget.set_avatar_provider(None)
         self._feed_request_id += 1
         self._detail_request_id += 1
         if hasattr(self, "video_player"):
@@ -358,6 +367,74 @@ class RedditLinuxWindow(QMainWindow):
 
         self._run_async(_dl, _done)
 
+    def _provide_community_avatar(
+        self, subreddit: str, callback: Callable[[Optional[bytes]], None]
+    ) -> None:
+        clean = (subreddit or "").strip().lower()
+        if not clean or self._is_closing:
+            return
+        cached = self.client.get_cached_subreddit_icon_bytes(clean)
+        if cached:
+            callback(cached)
+            return
+
+        if clean in self._in_flight_sub_avatars:
+            self._in_flight_sub_avatars[clean].append(callback)
+            return
+
+        self._in_flight_sub_avatars[clean] = [callback]
+
+        def _task() -> Optional[bytes]:
+            return self.client.fetch_subreddit_icon_bytes(clean)
+
+        def _done(raw: Optional[bytes]) -> None:
+            callbacks = self._in_flight_sub_avatars.pop(clean, [])
+            if raw and not self._is_closing:
+                for cb in callbacks:
+                    try:
+                        cb(raw)
+                    except Exception:
+                        pass
+
+        def _err(_msg: str) -> None:
+            self._in_flight_sub_avatars.pop(clean, [])
+
+        self._run_async(_task, _done, _err)
+
+    def _provide_user_avatar(
+        self, username: str, callback: Callable[[Optional[bytes]], None]
+    ) -> None:
+        clean = (username or "").strip().lower()
+        if not clean or self._is_closing:
+            return
+        cached = self.client.get_cached_user_avatar_bytes(clean)
+        if cached:
+            callback(cached)
+            return
+
+        if clean in self._in_flight_user_avatars:
+            self._in_flight_user_avatars[clean].append(callback)
+            return
+
+        self._in_flight_user_avatars[clean] = [callback]
+
+        def _task() -> Optional[bytes]:
+            return self.client.fetch_user_avatar_bytes(clean)
+
+        def _done(raw: Optional[bytes]) -> None:
+            callbacks = self._in_flight_user_avatars.pop(clean, [])
+            if raw and not self._is_closing:
+                for cb in callbacks:
+                    try:
+                        cb(raw)
+                    except Exception:
+                        pass
+
+        def _err(_msg: str) -> None:
+            self._in_flight_user_avatars.pop(clean, [])
+
+        self._run_async(_task, _done, _err)
+
     # -------------------------------------------------------------------------
     # Toast Notification Flutuante (Sprint 6)
     # -------------------------------------------------------------------------
@@ -404,8 +481,10 @@ class RedditLinuxWindow(QMainWindow):
         header_layout.setContentsMargins(16, 8, 16, 8)
         header_layout.setSpacing(10)
 
-        self.btn_hamburger = UiSkillsButton("☰")
+        self.btn_hamburger = UiSkillsButton()
         self.btn_hamburger.setObjectName("HamburgerButton")
+        self.btn_hamburger.setIcon(create_reddit_vector_icon("menu", size=18))
+        self.btn_hamburger.setIconSize(QSize(18, 18))
         self.btn_hamburger.setToolTip("Recolher / Expandir barra lateral de navegação")
         self.btn_hamburger.clicked.connect(self.toggle_left_sidebar)
         header_layout.addWidget(self.btn_hamburger)
@@ -421,7 +500,9 @@ class RedditLinuxWindow(QMainWindow):
         self.quick_sub_combo.setVisible(False)
         self.quick_sub_combo.activated.connect(self._on_quick_switcher_activated)
 
-        self.btn_translate_page = UiSkillsButton("🌐 Traduzir Página")
+        self.btn_translate_page = UiSkillsButton(" Traduzir Página")
+        self.btn_translate_page.setIcon(create_reddit_vector_icon("translate", size=16))
+        self.btn_translate_page.setIconSize(QSize(16, 16))
         self.btn_translate_page.setVisible(False)
         self.btn_translate_page.clicked.connect(self.translate_current_view)
 
@@ -444,14 +525,14 @@ class RedditLinuxWindow(QMainWindow):
         self._sync_theme_btn()
         self._sync_auto_translate_btn()
 
-        header_layout.addStretch(1)
+        header_layout.addStretch(3)
 
         # Pílula Central de Busca com Snoo Laranja Embutido (#SearchPillContainer — Imagem 4)
         self.search_pill = QFrame()
         self.search_pill.setObjectName("SearchPillContainer")
         self.search_pill.setFixedHeight(40)
-        self.search_pill.setMinimumWidth(360)
-        self.search_pill.setMaximumWidth(580)
+        self.search_pill.setMinimumWidth(420)
+        self.search_pill.setMaximumWidth(620)
         sp_layout = QHBoxLayout(self.search_pill)
         sp_layout.setContentsMargins(10, 0, 12, 0)
         sp_layout.setSpacing(8)
@@ -556,9 +637,9 @@ class RedditLinuxWindow(QMainWindow):
         # 2A. Coluna 1: Sidebar Esquerda Retrátil (250px <-> 64px Icon Rail — Imagem 1)
         self.left_sidebar = QFrame()
         self.left_sidebar.setObjectName("LeftSidebar")
-        self.left_sidebar.setMinimumWidth(64)
-        self.left_sidebar.setMaximumWidth(320)
-        self.left_sidebar.resize(250, 700)
+        self.left_sidebar.setMinimumWidth(220)
+        self.left_sidebar.setMaximumWidth(250)
+        self.left_sidebar.resize(224, 700)
         sidebar_outer = QVBoxLayout(self.left_sidebar)
         sidebar_outer.setContentsMargins(8, 10, 8, 10)
         sidebar_outer.setSpacing(4)
@@ -729,15 +810,21 @@ class RedditLinuxWindow(QMainWindow):
 
         # 2B. Coluna 2: Área Central com QStackedWidget (Feed Page / Detail Page)
         center_container = QWidget()
-        center_layout = QVBoxLayout(center_container)
+        center_layout = QHBoxLayout(center_container)
         center_layout.setContentsMargins(16, 10, 16, 12)
         center_layout.setSpacing(0)
 
         self.stack = QStackedWidget()
-        self.stack.setMaximumWidth(780)  # Largura de leitura confortável (estilo Shreddit)
+        self.stack.setMinimumWidth(520)
+        self.stack.setMaximumWidth(860)
+        self.stack.setSizePolicy(
+            QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding
+        )
         self._build_feed_page()
         self._build_detail_page()
-        center_layout.addWidget(self.stack, 1, Qt.AlignmentFlag.AlignHCenter)
+        center_layout.addStretch(0)
+        center_layout.addWidget(self.stack, 1)
+        center_layout.addStretch(0)
 
         self.body_splitter.addWidget(center_container)
 
@@ -748,7 +835,7 @@ class RedditLinuxWindow(QMainWindow):
         self.body_splitter.setStretchFactor(0, 0)
         self.body_splitter.setStretchFactor(1, 1)
         self.body_splitter.setStretchFactor(2, 0)
-        self.body_splitter.setSizes([250, 810, 320])
+        self.body_splitter.setSizes([224, 1056, 320])
 
         for i in range(1, self.body_splitter.count()):
             handle = self.body_splitter.handle(i)
@@ -850,14 +937,18 @@ class RedditLinuxWindow(QMainWindow):
         self.lbl_status.setVisible(False)
         ftb_layout.addWidget(self.lbl_status)
 
-        # Alternância de Modo de Visualização estilo "日 ⌄" (Card vs Compact — Imagem 2)
-        self.btn_view_card = UiSkillsButton("日 Cards")
+        # Alternância de Modo de Visualização (Card vs Compact)
+        self.btn_view_card = UiSkillsButton(" Cards")
+        self.btn_view_card.setIcon(create_reddit_vector_icon("card", size=14))
+        self.btn_view_card.setIconSize(QSize(14, 14))
         self.btn_view_card.setProperty("class", "SortButton")
-        self.btn_view_card.setToolTip("Visualização completa em Cards (Imagem 2)")
+        self.btn_view_card.setToolTip("Visualização completa em Cards")
         self.btn_view_card.clicked.connect(lambda: self._set_feed_view_mode("card"))
         ftb_layout.addWidget(self.btn_view_card)
 
-        self.btn_view_compact = UiSkillsButton("☰ Lista")
+        self.btn_view_compact = UiSkillsButton(" Lista")
+        self.btn_view_compact.setIcon(create_reddit_vector_icon("list", size=14))
+        self.btn_view_compact.setIconSize(QSize(14, 14))
         self.btn_view_compact.setProperty("class", "SortButton")
         self.btn_view_compact.setToolTip("Visualização densa em linhas")
         self.btn_view_compact.clicked.connect(
@@ -894,12 +985,16 @@ class RedditLinuxWindow(QMainWindow):
         title_col.addWidget(self.lbl_feed_subtitle)
         top_sub_row.addLayout(title_col, 1)
 
-        self.btn_fav_toggle = UiSkillsButton("☆ Favoritar")
+        self.btn_fav_toggle = UiSkillsButton(" Favoritar")
+        self.btn_fav_toggle.setIcon(create_reddit_vector_icon("bookmark", size=14))
+        self.btn_fav_toggle.setIconSize(QSize(14, 14))
         self.btn_fav_toggle.setProperty("class", "PillButton")
         self.btn_fav_toggle.clicked.connect(self._toggle_current_subreddit_favorite)
         top_sub_row.addWidget(self.btn_fav_toggle)
 
-        btn_refresh = UiSkillsButton("↻ Atualizar")
+        btn_refresh = UiSkillsButton(" Atualizar")
+        btn_refresh.setIcon(create_reddit_vector_icon("refresh", size=14))
+        btn_refresh.setIconSize(QSize(14, 14))
         btn_refresh.setProperty("class", "PillButton")
         btn_refresh.clicked.connect(self.refresh_current_feed)
         top_sub_row.addWidget(btn_refresh)
@@ -943,8 +1038,12 @@ class RedditLinuxWindow(QMainWindow):
         nav_bar.addWidget(btn_back)
 
         self.btn_translate_all_detail = UiSkillsButton(
-            "🌐  Traduzir Post e Todos os Comentários"
+            " Traduzir Post e Comentários"
         )
+        self.btn_translate_all_detail.setIcon(
+            create_reddit_vector_icon("translate", size=16)
+        )
+        self.btn_translate_all_detail.setIconSize(QSize(16, 16))
         self.btn_translate_all_detail.setProperty("class", "TranslateButton")
         self.btn_translate_all_detail.clicked.connect(
             self.translate_post_and_all_comments
@@ -1068,7 +1167,9 @@ class RedditLinuxWindow(QMainWindow):
 
         tc_btn_row = QHBoxLayout()
         tc_btn_row.addStretch(1)
-        self.btn_submit_top_comment = UiSkillsButton("💬 Publicar Comentário")
+        self.btn_submit_top_comment = UiSkillsButton(" Publicar Comentário")
+        self.btn_submit_top_comment.setIcon(create_reddit_vector_icon("chat", size=15))
+        self.btn_submit_top_comment.setIconSize(QSize(15, 15))
         self.btn_submit_top_comment.setProperty("class", "PillButtonAccent")
         self.btn_submit_top_comment.clicked.connect(self._on_submit_top_comment)
         tc_btn_row.addWidget(self.btn_submit_top_comment)
@@ -1076,7 +1177,7 @@ class RedditLinuxWindow(QMainWindow):
 
         self.detail_content_layout.addWidget(self.top_comment_card)
 
-        self.lbl_comments_header = QLabel("💬 Comentários")
+        self.lbl_comments_header = QLabel("Comentários")
         self.lbl_comments_header.setProperty("role", "title")
         self.detail_content_layout.addWidget(self.lbl_comments_header)
 
@@ -1107,14 +1208,15 @@ class RedditLinuxWindow(QMainWindow):
     def _build_right_sidebar(self) -> None:
         self.right_sidebar = QFrame()
         self.right_sidebar.setObjectName("RightCommunityCard")
-        self.right_sidebar.setMinimumWidth(250)
-        self.right_sidebar.setMaximumWidth(370)
+        self.right_sidebar.setMinimumWidth(280)
+        self.right_sidebar.setMaximumWidth(320)
         r_outer = QVBoxLayout(self.right_sidebar)
         r_outer.setContentsMargins(10, 10, 10, 10)
         r_outer.setSpacing(0)
 
         r_scroll = QScrollArea()
         r_scroll.setWidgetResizable(True)
+        r_scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
         r_content = QWidget()
         r_layout = QVBoxLayout(r_content)
         r_layout.setContentsMargins(6, 4, 6, 4)
@@ -1150,72 +1252,146 @@ class RedditLinuxWindow(QMainWindow):
         r_layout.addWidget(self.recent_posts_card)
         self._rebuild_recent_posts_sidebar()
 
-        # 2. Card "SOBRE A COMUNIDADE" + Regras em Acordeão
+        # 2. Card "SOBRE A COMUNIDADE" (SidebarCard)
+        self.about_card = QFrame()
+        self.about_card.setProperty("class", "SidebarCard")
+        about_layout = QVBoxLayout(self.about_card)
+        about_layout.setContentsMargins(14, 12, 14, 12)
+        about_layout.setSpacing(10)
+
         lbl_about = QLabel("SOBRE A COMUNIDADE")
         lbl_about.setObjectName("SidebarSectionTitle")
-        r_layout.addWidget(lbl_about)
+        about_layout.addWidget(lbl_about)
 
-        self.lbl_right_sub_name = QLabel("r/popular")
+        # Cabeçalho com Avatar + Nome da Comunidade
+        about_header = QHBoxLayout()
+        about_header.setContentsMargins(0, 0, 0, 0)
+        about_header.setSpacing(10)
+
+        self.right_sub_avatar = CommunityAvatarWidget("popular", size=32)
+        about_header.addWidget(self.right_sub_avatar)
+
+        self.lbl_right_sub_name = QLabel("Início")
         self.lbl_right_sub_name.setWordWrap(True)
         self.lbl_right_sub_name.setProperty("role", "title")
-        r_layout.addWidget(self.lbl_right_sub_name)
+        about_header.addWidget(self.lbl_right_sub_name, 1)
+        about_layout.addLayout(about_header)
 
         self.lbl_right_sub_desc = QLabel(
-            "As postagens mais ativas e votadas de todo o Reddit agora."
+            "Seu feed personalizado com postagens das comunidades em que você está inscrito."
         )
         self.lbl_right_sub_desc.setWordWrap(True)
         self.lbl_right_sub_desc.setProperty("role", "body_preview")
-        r_layout.addWidget(self.lbl_right_sub_desc)
+        about_layout.addWidget(self.lbl_right_sub_desc)
 
-        self.btn_translate_sub_desc = UiSkillsButton("🌐 Traduzir Descrição")
+        self.btn_translate_sub_desc = UiSkillsButton(" Traduzir Descrição")
+        self.btn_translate_sub_desc.setIcon(
+            create_reddit_vector_icon("translate", size=16)
+        )
+        self.btn_translate_sub_desc.setIconSize(QSize(16, 16))
         self.btn_translate_sub_desc.setProperty("class", "TranslateButton")
         self.btn_translate_sub_desc.clicked.connect(
             self._translate_current_sub_description
         )
-        r_layout.addWidget(self.btn_translate_sub_desc)
+        about_layout.addWidget(self.btn_translate_sub_desc)
 
+        # Painel Estruturado de Estatísticas (Grid 2 colunas com divisor)
         stats_frame = QFrame()
         stats_frame.setProperty("class", "InfoPanel")
         stats_row = QHBoxLayout(stats_frame)
-        stats_row.setContentsMargins(10, 8, 10, 8)
+        stats_row.setContentsMargins(12, 10, 12, 10)
+        stats_row.setSpacing(10)
 
-        self.lbl_right_members = QLabel("—\nMembros")
-        self.lbl_right_members.setProperty("role", "subtitle")
-        stats_row.addWidget(self.lbl_right_members)
+        col_m = QVBoxLayout()
+        col_m.setSpacing(1)
+        col_m.setContentsMargins(0, 0, 0, 0)
+        self.lbl_right_members_val = QLabel("Global")
+        self.lbl_right_members_val.setProperty("role", "stat_value")
+        self.lbl_right_members_sub = QLabel("Feed Principal")
+        self.lbl_right_members_sub.setProperty("role", "caption")
+        col_m.addWidget(self.lbl_right_members_val)
+        col_m.addWidget(self.lbl_right_members_sub)
+        stats_row.addLayout(col_m, 1)
 
-        self.lbl_right_online = QLabel("● Online")
-        self.lbl_right_online.setProperty("role", "status_ok")
-        stats_row.addWidget(self.lbl_right_online)
-        r_layout.addWidget(stats_frame)
+        sep = QFrame()
+        sep.setProperty("class", "StatSeparator")
+        stats_row.addWidget(sep)
 
-        # Acordeão de Regras da Comunidade (Sprint 2)
+        col_o = QVBoxLayout()
+        col_o.setSpacing(1)
+        col_o.setContentsMargins(0, 0, 0, 0)
+        self.lbl_right_online_val = QLabel("● Ativo")
+        self.lbl_right_online_val.setProperty("role", "status_ok")
+        self.lbl_right_online_sub = QLabel("Status")
+        self.lbl_right_online_sub.setProperty("role", "caption")
+        col_o.addWidget(self.lbl_right_online_val)
+        col_o.addWidget(self.lbl_right_online_sub)
+        stats_row.addLayout(col_o, 1)
+
+        self.lbl_right_members = self.lbl_right_members_val
+        self.lbl_right_online = self.lbl_right_online_val
+        about_layout.addWidget(stats_frame)
+
+        r_layout.addWidget(self.about_card)
+
+        # 3. Acordeão de Regras da Comunidade
+        self.rules_card = QFrame()
+        self.rules_card.setProperty("class", "SidebarCard")
+        rules_outer_layout = QVBoxLayout(self.rules_card)
+        rules_outer_layout.setContentsMargins(14, 12, 14, 12)
+        rules_outer_layout.setSpacing(6)
+
         self.lbl_rules_title = QLabel("REGRAS DA COMUNIDADE")
         self.lbl_rules_title.setObjectName("SidebarSectionTitle")
-        self.lbl_rules_title.setVisible(False)
-        r_layout.addWidget(self.lbl_rules_title)
+        rules_outer_layout.addWidget(self.lbl_rules_title)
 
         self.rules_container = QWidget()
         self.rules_layout = QVBoxLayout(self.rules_container)
         self.rules_layout.setContentsMargins(0, 0, 0, 0)
         self.rules_layout.setSpacing(4)
-        self.rules_container.setVisible(False)
-        r_layout.addWidget(self.rules_container)
+        rules_outer_layout.addWidget(self.rules_container)
+
+        self.rules_card.setVisible(False)
+        r_layout.addWidget(self.rules_card)
+
+        # 4. Card "ATALHOS DE TECLADO" estruturado
+        shortcuts_card = QFrame()
+        shortcuts_card.setProperty("class", "SidebarCard")
+        sc_layout = QVBoxLayout(shortcuts_card)
+        sc_layout.setContentsMargins(14, 12, 14, 12)
+        sc_layout.setSpacing(8)
 
         tips_title = QLabel("ATALHOS DE TECLADO")
         tips_title.setObjectName("SidebarSectionTitle")
-        r_layout.addWidget(tips_title)
+        sc_layout.addWidget(tips_title)
 
-        tips_lbl = QLabel(
-            "• <b>Ctrl+K / Ctrl+F</b>: Busca global\n"
-            "• <b>Ctrl+T</b>: Traduzir tela atual\n"
-            "• <b>Ctrl+N</b>: Criar publicação\n"
-            "• <b>J / K</b>: Rolar feed abaixo / acima\n"
-            "• <b>R / F5</b>: Atualizar feed\n"
-            "• <b>Esc</b>: Voltar ao feed"
-        )
-        tips_lbl.setWordWrap(True)
-        tips_lbl.setProperty("role", "caption")
-        r_layout.addWidget(tips_lbl)
+        shortcuts = [
+            ("Ctrl+K", "Busca rápida"),
+            ("Ctrl+T", "Traduzir tela"),
+            ("Ctrl+N", "Nova publicação"),
+            ("J / K", "Navegar no feed"),
+            ("R / F5", "Atualizar feed"),
+            ("Esc", "Voltar / Fechar"),
+        ]
+
+        for key, desc in shortcuts:
+            row = QFrame()
+            row.setProperty("class", "ShortcutRow")
+            h = QHBoxLayout(row)
+            h.setContentsMargins(0, 2, 0, 2)
+            h.setSpacing(8)
+
+            lbl_key = QLabel(key)
+            lbl_key.setProperty("class", "KeyBadge")
+
+            lbl_desc = QLabel(desc)
+            lbl_desc.setProperty("class", "ShortcutDesc")
+
+            h.addWidget(lbl_key)
+            h.addWidget(lbl_desc, 1)
+            sc_layout.addWidget(row)
+
+        r_layout.addWidget(shortcuts_card)
 
         r_layout.addStretch(1)
         r_scroll.setWidget(r_content)
@@ -1349,20 +1525,38 @@ class RedditLinuxWindow(QMainWindow):
         if self.current_user:
             uname = self.current_user.get("username", "Usuário")
             karma = self.current_user.get("karma", 0)
-            hdr = menu.addAction(f"👤 u/{uname} ({format_count(karma)} karma)")
+            hdr = menu.addAction(f"u/{uname} ({format_count(karma)} karma)")
             hdr.setEnabled(False)
             menu.addSeparator()
-            act_saved = menu.addAction("🔖 Posts Salvos")
+            act_avatar = menu.addAction("Editar avatar")
+            act_saved = menu.addAction("Rascunhos")
+            act_rewards = menu.addAction("Conquistas")
+            act_earn = menu.addAction("Ganhar")
+            act_premium = menu.addAction("Premium")
             act_theme = menu.addAction(
                 "☀️ Tema Claro" if self.dark_mode else "🌙 Tema Escuro"
             )
             menu.addSeparator()
+            act_ads = menu.addAction("Anuncie no Reddit")
+            act_settings = menu.addAction("Configurações")
             act_logout = menu.addAction("🚪 Encerrar Sessão (Sair)")
             chosen = menu.exec(QCursor.pos())
-            if chosen == act_saved:
+            if chosen == act_avatar:
+                webbrowser.open("https://www.reddit.com/settings/avatar")
+            elif chosen == act_saved:
                 self.show_saved_posts()
+            elif chosen == act_rewards:
+                webbrowser.open("https://www.reddit.com/achievements")
+            elif chosen == act_earn:
+                webbrowser.open("https://www.reddit.com/contributor")
+            elif chosen == act_premium:
+                webbrowser.open("https://www.reddit.com/premium")
             elif chosen == act_theme:
                 self._toggle_theme()
+            elif chosen == act_ads:
+                webbrowser.open("https://ads.reddit.com")
+            elif chosen == act_settings:
+                webbrowser.open("https://www.reddit.com/settings")
             elif chosen == act_logout:
                 self._on_logout_clicked()
         else:
@@ -1472,9 +1666,9 @@ class RedditLinuxWindow(QMainWindow):
             if collapsed:
                 self.left_sidebar.setFixedWidth(64)
             else:
-                self.left_sidebar.setMinimumWidth(190)
-                self.left_sidebar.setMaximumWidth(320)
-                self.left_sidebar.resize(250, self.left_sidebar.height())
+                self.left_sidebar.setMinimumWidth(220)
+                self.left_sidebar.setMaximumWidth(250)
+                self.left_sidebar.resize(224, self.left_sidebar.height())
 
         for w in (
             self.btn_games_section,
@@ -2007,9 +2201,15 @@ class RedditLinuxWindow(QMainWindow):
         self.btn_fav_toggle.setVisible(True)
         is_fav = any(f.lower() == sub.lower() for f in self.favorites)
         if is_fav:
-            self.btn_fav_toggle.setText("★ Favorito")
+            self.btn_fav_toggle.setIcon(
+                create_reddit_vector_icon("bookmark_filled", size=14)
+            )
+            self.btn_fav_toggle.setText(" Favorito")
         else:
-            self.btn_fav_toggle.setText("☆ Favoritar")
+            self.btn_fav_toggle.setIcon(
+                create_reddit_vector_icon("bookmark", size=14)
+            )
+            self.btn_fav_toggle.setText(" Favoritar")
 
     # -------------------------------------------------------------------------
     # Carregamento de Feeds, Skeletons Shimmer e Regras da Comunidade
@@ -2133,26 +2333,32 @@ class RedditLinuxWindow(QMainWindow):
             )
         self.lbl_feed_subtitle.setText(subtitle or "Comunidade do Reddit")
 
+        self.right_sub_avatar.set_community_name(info.name or "reddit")
         self.lbl_right_sub_name.setText(info.title or info.display_name_prefixed)
         desc = info.public_description or "Sem descrição pública disponível."
         self.lbl_right_sub_desc.setText(desc)
         self.btn_translate_sub_desc.setVisible(bool(info.public_description))
-        self.btn_translate_sub_desc.setText("🌐 Traduzir Descrição")
+        self.btn_translate_sub_desc.setIcon(
+            create_reddit_vector_icon("translate", size=16)
+        )
+        self.btn_translate_sub_desc.setText(" Traduzir Descrição")
         self.btn_translate_sub_desc.setProperty("translated", "false")
 
         if info.subscribers:
-            self.lbl_right_members.setText(
-                f"{format_count(info.subscribers)}\nMembros"
-            )
+            self.lbl_right_members_val.setText(format_count(info.subscribers))
+            self.lbl_right_members_sub.setText("Membros")
         else:
-            self.lbl_right_members.setText("Global\nFeed")
+            self.lbl_right_members_val.setText("Global")
+            self.lbl_right_members_sub.setText("Feed Principal")
 
         if info.active_users:
-            self.lbl_right_online.setText(
-                f"● {format_count(info.active_users)} online"
+            self.lbl_right_online_val.setText(
+                f"● {format_count(info.active_users)}"
             )
+            self.lbl_right_online_sub.setText("Online agora")
         else:
-            self.lbl_right_online.setText("● Ativo agora")
+            self.lbl_right_online_val.setText("● Ativo")
+            self.lbl_right_online_sub.setText("Status")
 
         if rules is not None:
             self._populate_community_rules(rules)
@@ -2165,6 +2371,7 @@ class RedditLinuxWindow(QMainWindow):
                 w.deleteLater()
 
         has_rules = bool(rules)
+        self.rules_card.setVisible(has_rules)
         self.lbl_rules_title.setVisible(has_rules)
         self.rules_container.setVisible(has_rules)
         for r in rules[:10]:
@@ -2181,13 +2388,17 @@ class RedditLinuxWindow(QMainWindow):
             info.show_translated = False
             self.lbl_right_sub_name.setText(info.title or info.display_name_prefixed)
             self.lbl_right_sub_desc.setText(info.public_description)
-            self.btn_translate_sub_desc.setText("🌐 Traduzir Descrição")
+            self.btn_translate_sub_desc.setIcon(
+                create_reddit_vector_icon("translate", size=16)
+            )
+            self.btn_translate_sub_desc.setText(" Traduzir Descrição")
             self.btn_translate_sub_desc.setProperty("translated", "false")
             self.btn_translate_sub_desc.style().unpolish(self.btn_translate_sub_desc)
             self.btn_translate_sub_desc.style().polish(self.btn_translate_sub_desc)
             return
 
-        self.btn_translate_sub_desc.setText("⏳ Traduzindo...")
+        self.btn_translate_sub_desc.setIcon(QIcon())
+        self.btn_translate_sub_desc.setText(" Traduzindo...")
         self.btn_translate_sub_desc.setEnabled(False)
 
         def _task() -> Any:
@@ -2203,7 +2414,10 @@ class RedditLinuxWindow(QMainWindow):
             self.lbl_right_sub_name.setText(t_title)
             self.lbl_right_sub_desc.setText(t_desc)
             self.btn_translate_sub_desc.setEnabled(True)
-            self.btn_translate_sub_desc.setText("🔄 Ver Original")
+            self.btn_translate_sub_desc.setIcon(
+                create_reddit_vector_icon("refresh", size=16)
+            )
+            self.btn_translate_sub_desc.setText(" Ver Original")
             self.btn_translate_sub_desc.setProperty("translated", "true")
             self.btn_translate_sub_desc.style().unpolish(self.btn_translate_sub_desc)
             self.btn_translate_sub_desc.style().polish(self.btn_translate_sub_desc)
@@ -2531,8 +2745,11 @@ class RedditLinuxWindow(QMainWindow):
 
         self.btn_detail_play_video.setVisible(post.is_video)
         self.btn_translate_all_detail.setEnabled(True)
+        self.btn_translate_all_detail.setIcon(
+            create_reddit_vector_icon("translate", size=16)
+        )
         self.btn_translate_all_detail.setText(
-            "🌐  Traduzir Post e Todos os Comentários"
+            " Traduzir Post e Comentários"
         )
         self.btn_translate_all_detail.setProperty("translated", "false")
         self.btn_translate_all_detail.style().unpolish(
@@ -2568,7 +2785,7 @@ class RedditLinuxWindow(QMainWindow):
 
         self.comments_flat.clear_comments()
         self.lbl_comments_status_msg.setVisible(False)
-        self.lbl_comments_header.setText("💬 Carregando árvore de comentários...")
+        self.lbl_comments_header.setText("Carregando comentários...")
 
         def _task() -> List[CommentItem]:
             return self.client.fetch_post_comments(post, limit=80)
@@ -2583,7 +2800,7 @@ class RedditLinuxWindow(QMainWindow):
             self.current_comments = comments
             self._refresh_detail_post_texts()
             self.lbl_comments_header.setText(
-                f"💬 Comentários ({len(comments)} carregados — clique nas linhas guia ou [−] para colapsar)"
+                f"Comentários ({len(comments)} carregados — clique nas linhas guia ou [−] para colapsar)"
             )
             if not comments:
                 self.lbl_comments_status_msg.setText(
@@ -2604,7 +2821,7 @@ class RedditLinuxWindow(QMainWindow):
                 or self.current_post.id != post.id
             ):
                 return
-            self.lbl_comments_header.setText("💬 Comentários")
+            self.lbl_comments_header.setText("Comentários")
             self.lbl_comments_status_msg.setText(
                 f"Não foi possível carregar os comentários: {msg}"
             )
@@ -2786,7 +3003,8 @@ class RedditLinuxWindow(QMainWindow):
         valid_cards = [c for c in cards if isValid(c)]
         if not valid_cards:
             return
-        self.btn_translate_page.setText("⏳ Traduzindo Feed...")
+        self.btn_translate_page.setIcon(QIcon())
+        self.btn_translate_page.setText(" Traduzindo Feed...")
         self.btn_translate_page.setEnabled(False)
 
         titles = [c.post.title for c in valid_cards]
@@ -2820,12 +3038,18 @@ class RedditLinuxWindow(QMainWindow):
 
             if isValid(self.btn_translate_page):
                 self.btn_translate_page.setEnabled(True)
-                self.btn_translate_page.setText("🌐 Traduzir Página")
+                self.btn_translate_page.setIcon(
+                    create_reddit_vector_icon("translate", size=16)
+                )
+                self.btn_translate_page.setText(" Traduzir Página")
 
         def _err(_: str) -> None:
             if isValid(self.btn_translate_page):
                 self.btn_translate_page.setEnabled(True)
-                self.btn_translate_page.setText("🌐 Traduzir Página")
+                self.btn_translate_page.setIcon(
+                    create_reddit_vector_icon("translate", size=16)
+                )
+                self.btn_translate_page.setText(" Traduzir Página")
 
         self._run_async(_task, _done, _err)
 
@@ -2835,7 +3059,8 @@ class RedditLinuxWindow(QMainWindow):
             return
 
         req_id = self._detail_request_id
-        self.btn_translate_all_detail.setText("⏳ Traduzindo post e comentários...")
+        self.btn_translate_all_detail.setIcon(QIcon())
+        self.btn_translate_all_detail.setText(" Traduzindo post e comentários...")
         self.btn_translate_all_detail.setEnabled(False)
 
         valid_c_cards = [c for c in self.comment_cards if isValid(c)]
@@ -2877,8 +3102,11 @@ class RedditLinuxWindow(QMainWindow):
 
             if isValid(self.btn_translate_all_detail):
                 self.btn_translate_all_detail.setEnabled(True)
+                self.btn_translate_all_detail.setIcon(
+                    create_reddit_vector_icon("check", size=16)
+                )
                 self.btn_translate_all_detail.setText(
-                    "✓ Post e Comentários Traduzidos"
+                    " Post e Comentários Traduzidos"
                 )
                 self.btn_translate_all_detail.setProperty("translated", "true")
                 self.btn_translate_all_detail.style().unpolish(
@@ -2891,8 +3119,11 @@ class RedditLinuxWindow(QMainWindow):
         def _err(_: str) -> None:
             if isValid(self.btn_translate_all_detail):
                 self.btn_translate_all_detail.setEnabled(True)
+                self.btn_translate_all_detail.setIcon(
+                    create_reddit_vector_icon("translate", size=16)
+                )
                 self.btn_translate_all_detail.setText(
-                    "🌐 Traduzir Post e Todos os Comentários"
+                    " Traduzir Post e Comentários"
                 )
 
         self._run_async(_task, _done, _err)
