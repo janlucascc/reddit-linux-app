@@ -37,5 +37,5 @@ modules:
     sources:
       - type: git
         url: https://github.com/janlucascc/reddit-linux-app.git
-        commit: a929588b99210493dd75414ca49bbd47602572c0
+        commit: 9da313387ec5cfd7845b7469b1a96def81b0c522
         tag: v1.0.0
