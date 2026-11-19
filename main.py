@@ -4087,7 +4087,7 @@ def main() -> None:
     )
     app = QApplication(sys.argv)
     app.setApplicationName("Reddit Linux Desktop")
-    app.setDesktopFileName("reddit-linux-desktop")
+    app.setDesktopFileName(os.environ.get("FLATPAK_ID", "reddit-linux-desktop"))
     window = RedditLinuxWindow()
     window.show()
     sys.exit(app.exec())

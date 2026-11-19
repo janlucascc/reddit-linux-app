@@ -42,6 +42,10 @@ def detect_system_format() -> str:
     - 'arch': distros Arch Linux, Manjaro, EndeavourOS.
     - 'generic': qualquer outra distribuição Linux.
     """
+    # 0. Verifica se está rodando dentro do Flatpak
+    if os.environ.get("FLATPAK_ID") or os.path.exists("/.flatpak-info"):
+        return "flatpak"
+
     # 1. Verifica se está rodando dentro de um AppImage
     if os.environ.get("APPIMAGE") or "/.mount_" in os.path.abspath(sys.argv[0]):
         return "appimage"
@@ -70,6 +74,12 @@ def detect_system_format() -> str:
 
 
 FORMAT_METADATA: Dict[str, Dict[str, str]] = {
+    "flatpak": {
+        "label": "Flatpak (Flathub)",
+        "ext": "",
+        "badge": "📦 Executando via Flatpak",
+        "cmd": "flatpak update io.github.janlucascc.reddit-linux-app",
+    },
     "appimage": {
         "label": "AppImage Portátil",
         "ext": ".AppImage",

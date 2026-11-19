@@ -3,11 +3,12 @@
 Testes unitários para o sistema de verificação e atualização multi-formato Linux (.rpm, .deb, .appimage).
 """
 
+import os
 import sys
 from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from unittest import TestCase, main
+from unittest import TestCase, main, mock
 from PySide6.QtWidgets import QApplication
 
 from updater import (
@@ -112,6 +113,14 @@ class TestUpdaterSystem(TestCase):
         self.assertIn("Notificação de atualização", dlg.notes_browser.toPlainText())
         self.assertIn("Suporte a .rpm", dlg.notes_browser.toPlainText())
         dlg.close()
+
+    def test_flatpak_detection(self) -> None:
+        with mock.patch.dict(os.environ, {"FLATPAK_ID": "io.github.janlucascc.reddit-linux-app"}):
+            fmt = detect_system_format()
+            self.assertEqual(fmt, "flatpak")
+            meta = FORMAT_METADATA.get(fmt)
+            self.assertIsNotNone(meta)
+            self.assertIn("Flatpak", meta["label"])
 
 
 if __name__ == "__main__":

@@ -1,0 +1,10 @@
+[Desktop Entry]
+Name=Reddit Linux
+Comment=Modern native Reddit client for Linux
+Exec=reddit-linux
+Icon=io.github.janlucascc.reddit-linux-app
+Terminal=false
+Type=Application
+Categories=Network;News;Feed;Qt;
+StartupNotify=true
+StartupWMClass=reddit-linux

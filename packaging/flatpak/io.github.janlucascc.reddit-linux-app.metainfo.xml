@@ -1,0 +1,93 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- Copyright 2026 Jan Lucas -->
+<component type="desktop-application">
+  <id>io.github.janlucascc.reddit-linux-app</id>
+  <metadata_license>CC0-1.0</metadata_license>
+  <project_license>MIT</project_license>
+  <name>Reddit Linux</name>
+  <summary>Modern native Reddit desktop client for Linux</summary>
+  <description>
+    <p>
+      Reddit Linux is a fast, native desktop client for Reddit built with Python and Qt6.
+      Designed specifically for Linux, it offers a clean interface with low CPU and RAM usage,
+      free from the overhead of Electron.
+    </p>
+    <p>Key highlights include:</p>
+    <ul>
+      <li>Fast browsing of popular feeds, all, and custom subreddit subscriptions</li>
+      <li>Instant one-click translation for posts, comments, and community descriptions</li>
+      <li>Fluid native video playback with synchronized DASH audio muxing</li>
+      <li>Dark and Light themes with WCAG AAA high-contrast accessibility</li>
+      <li>Full keyboard navigation with predictable tab ordering and shortcuts</li>
+      <li>Step-by-step post creation dialog with live markdown preview</li>
+      <li>Collapsible nested comment trees with hidden replies counter</li>
+    </ul>
+  </description>
+  <launchable type="desktop-id">io.github.janlucascc.reddit-linux-app.desktop</launchable>
+  <url type="homepage">https://github.com/janlucascc/reddit-linux-app</url>
+  <url type="bugtracker">https://github.com/janlucascc/reddit-linux-app/issues</url>
+  <url type="vcs-browser">https://github.com/janlucascc/reddit-linux-app</url>
+  <developer id="io.github.janlucascc">
+    <name>Jan Lucas</name>
+  </developer>
+  <screenshots>
+    <screenshot type="default">
+      <caption>Feed view in dark mode</caption>
+      <image>https://raw.githubusercontent.com/janlucascc/reddit-linux-app/main/assets/screenshots/feed-dark.png</image>
+    </screenshot>
+    <screenshot>
+      <caption>Post discussion and folded comments</caption>
+      <image>https://raw.githubusercontent.com/janlucascc/reddit-linux-app/main/assets/screenshots/post-detail.png</image>
+    </screenshot>
+    <screenshot>
+      <caption>Feed view in light mode</caption>
+      <image>https://raw.githubusercontent.com/janlucascc/reddit-linux-app/main/assets/screenshots/feed-light.png</image>
+    </screenshot>
+    <screenshot>
+      <caption>Community context and information panel</caption>
+      <image>https://raw.githubusercontent.com/janlucascc/reddit-linux-app/main/assets/screenshots/community-dark.png</image>
+    </screenshot>
+  </screenshots>
+  <releases>
+    <release version="1.0.0" date="2026-11-19">
+      <description>
+        <p>First official Flathub release:</p>
+        <ul>
+          <li>Responsive multi-breakpoint layout for all display sizes</li>
+          <li>WCAG AAA accessibility compliance and reduced-motion support</li>
+          <li>Integrated translation cache and browser login</li>
+          <li>Native media playback and keyboard shortcuts</li>
+        </ul>
+      </description>
+    </release>
+  </releases>
+  <content_rating type="oars-1.1">
+    <content_attribute id="violence-cartoon">none</content_attribute>
+    <content_attribute id="violence-fantasy">none</content_attribute>
+    <content_attribute id="violence-realistic">mild</content_attribute>
+    <content_attribute id="violence-bloodshed">none</content_attribute>
+    <content_attribute id="violence-sexual">none</content_attribute>
+    <content_attribute id="violence-desecration">none</content_attribute>
+    <content_attribute id="violence-slavery">none</content_attribute>
+    <content_attribute id="violence-worship">none</content_attribute>
+    <content_attribute id="drugs-alcohol">mild</content_attribute>
+    <content_attribute id="drugs-narcotics">mild</content_attribute>
+    <content_attribute id="drugs-tobacco">mild</content_attribute>
+    <content_attribute id="sex-nudity">mild</content_attribute>
+    <content_attribute id="sex-themes">mild</content_attribute>
+    <content_attribute id="sex-homosexuality">none</content_attribute>
+    <content_attribute id="sex-prostitution">none</content_attribute>
+    <content_attribute id="sex-adultery">none</content_attribute>
+    <content_attribute id="sex-appearance">none</content_attribute>
+    <content_attribute id="language-profanity">mild</content_attribute>
+    <content_attribute id="language-humor">mild</content_attribute>
+    <content_attribute id="language-discrimination">none</content_attribute>
+    <content_attribute id="social-chat">intense</content_attribute>
+    <content_attribute id="social-info">moderate</content_attribute>
+    <content_attribute id="social-audio">none</content_attribute>
+    <content_attribute id="social-location">none</content_attribute>
+    <content_attribute id="social-contacts">none</content_attribute>
+    <content_attribute id="money-purchasing">none</content_attribute>
+    <content_attribute id="money-gambling">none</content_attribute>
+  </content_rating>
+</component>

@@ -10,6 +10,7 @@ Construído com Python e PySide6 (Qt6), com foco em desempenho, privacidade e tr
 [![Python](https://img.shields.io/badge/Python-3.10%2B-3776AB?logo=python&logoColor=white)](https://www.python.org/)
 [![Qt](https://img.shields.io/badge/GUI-PySide6%20%2F%20Qt6-41CD52?logo=qt&logoColor=white)](https://wiki.qt.io/Qt_for_Python)
 [![Platform](https://img.shields.io/badge/Platform-Linux-FCC624?logo=linux&logoColor=black)](https://www.kernel.org/)
+[![Flathub](https://img.shields.io/badge/Flathub-io.github.janlucascc.reddit--linux--app-blue?logo=flathub&logoColor=white)](packaging/flatpak/FLATHUB_SUBMISSION_GUIDE.md)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 [![Zero Config](https://img.shields.io/badge/Setup-Pronto%20para%20Uso-brightgreen.svg)](#-instalação-rápida)
 
@@ -52,9 +53,41 @@ Construído com Python e PySide6 (Qt6), com foco em desempenho, privacidade e tr
 
 ---
 
-## 🚀 Instalação Rápida
+## 🚀 Instalação e Execução
 
-### 1. Dependências do Sistema
+### Opção 1: Flathub / Flatpak (Universal)
+
+Em breve disponível diretamente na Central de Aplicativos (GNOME Software / KDE Discover).
+
+```bash
+# Instalação via terminal
+flatpak install flathub io.github.janlucascc.reddit-linux-app
+
+# Executar
+flatpak run io.github.janlucascc.reddit-linux-app
+```
+*(Consulte [`packaging/flatpak/FLATHUB_SUBMISSION_GUIDE.md`](packaging/flatpak/FLATHUB_SUBMISSION_GUIDE.md) para detalhes do empacotamento).*
+
+### Opção 2: Pacotes Pré-Compilados (.AppImage, .deb, .rpm)
+
+Baixe a versão mais recente diretamente na página de [**Releases**](https://github.com/janlucascc/reddit-linux-app/releases):
+
+* **AppImage (Universal)**: Basta baixar, dar permissão de execução e rodar:
+  ```bash
+  chmod +x reddit-linux-*.AppImage && ./reddit-linux-*.AppImage
+  ```
+* **.deb (Ubuntu / Debian / Mint)**: Instale com 2 cliques ou:
+  ```bash
+  sudo apt install ./reddit-linux_*.deb
+  ```
+* **.rpm (Fedora / RHEL / openSUSE)**: Instale com 2 cliques ou:
+  ```bash
+  sudo dnf install ./reddit-linux-*.rpm
+  ```
+
+### Opção 3: Executar pelo Código-Fonte
+
+#### 1. Dependências do Sistema
 
 ```bash
 # Ubuntu / Debian
