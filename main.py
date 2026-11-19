@@ -95,6 +95,12 @@ from widgets import (
     create_rounded_pixmap,
     open_video_stream,
 )
+from updater import (
+    APP_VERSION,
+    UpdateDialog,
+    UpdateReleaseInfo,
+    check_for_updates_online,
+)
 
 
 CONFIG_PATH = Path.home() / ".config" / "reddit-linux-app" / "config.json"
@@ -249,6 +255,7 @@ class RedditLinuxWindow(QMainWindow):
         CommunityAvatarWidget.set_avatar_provider(self._provide_community_avatar)
         UserAvatarWidget.set_avatar_provider(self._provide_user_avatar)
         self.current_user: Optional[Dict[str, Any]] = self.client.fetch_current_user()
+        self.available_update: Optional[UpdateReleaseInfo] = None
         self.user_subscribed_subs: set[str] = set()
         if self.current_user:
             try:
@@ -264,6 +271,9 @@ class RedditLinuxWindow(QMainWindow):
 
         # Verifica sessão em segundo plano
         self._check_login_status_on_startup()
+
+        # Verifica atualizações silenciosamente em segundo plano
+        QTimer.singleShot(3500, self._check_for_updates_background)
 
         # Carrega feed inicial (Início se logado, ou Popular)
         initial_sub = "home" if self.current_user else "popular"
@@ -462,6 +472,60 @@ class RedditLinuxWindow(QMainWindow):
             self.toast_frame.move(x, y)
 
     # -------------------------------------------------------------------------
+    # Sistema de Atualização Multi-Formato Linux (.rpm, .deb, .appimage)
+    # -------------------------------------------------------------------------
+    def _check_for_updates_background(self) -> None:
+        """Verifica silenciosamente em segundo plano se há nova versão no GitHub Releases."""
+        def _task() -> Optional[UpdateReleaseInfo]:
+            return check_for_updates_online(APP_VERSION)
+
+        def _done(info: Optional[UpdateReleaseInfo]) -> None:
+            if not isValid(self) or not info:
+                return
+            self.available_update = info
+            self.btn_update_badge.setText(f" {info.tag_name}")
+            self.btn_update_badge.setVisible(True)
+
+        self._run_async(_task, _done, lambda _: None)
+
+    def _manual_check_for_updates(self) -> None:
+        """Checagem manual de versão com feedback instantâneo via toast."""
+        self.show_toast("🔍 Verificando atualizações no GitHub...", variant="info")
+
+        def _task() -> Optional[UpdateReleaseInfo]:
+            return check_for_updates_online(APP_VERSION)
+
+        def _done(info: Optional[UpdateReleaseInfo]) -> None:
+            if not isValid(self):
+                return
+            if info:
+                self.available_update = info
+                self.btn_update_badge.setText(f" {info.tag_name}")
+                self.btn_update_badge.setVisible(True)
+                self._show_update_dialog()
+            else:
+                self.show_toast(
+                    f"✓ Você já está usando a versão mais recente (v{APP_VERSION}).",
+                    variant="success",
+                )
+
+        def _err(_msg: str) -> None:
+            if isValid(self):
+                self.show_toast(
+                    "⚠️ Não foi possível consultar o GitHub Releases agora.",
+                    variant="error",
+                )
+
+        self._run_async(_task, _done, _err)
+
+    def _show_update_dialog(self) -> None:
+        """Abre o diálogo de atualização com suporte a .rpm, .deb e .appimage."""
+        if not self.available_update:
+            return
+        dlg = UpdateDialog(self.available_update, parent=self)
+        dlg.exec()
+
+    # -------------------------------------------------------------------------
     # Construção da Interface (Sprint 2: Header 60px + QSplitter 3 Colunas)
     # -------------------------------------------------------------------------
     def _build_ui(self) -> None:
@@ -550,6 +614,16 @@ class RedditLinuxWindow(QMainWindow):
         header_layout.addStretch(1)
 
         # Bloco Direito de Ações Globais (Foto 5: 文A, AD, 💬, ＋ Criar, 🔔 10, Avatar Snoovatar)
+        self.btn_update_badge = UiSkillsButton(" Atualização")
+        self.btn_update_badge.setObjectName("UpdateBadgeButton")
+        self.btn_update_badge.setProperty("class", "UpdateBadgeButton")
+        self.btn_update_badge.setIcon(create_reddit_vector_icon("rocket", size=14))
+        self.btn_update_badge.setIconSize(QSize(14, 14))
+        self.btn_update_badge.setVisible(False)
+        self.btn_update_badge.setToolTip("Uma nova versão do Reddit for Linux está disponível (.rpm, .deb, .appimage)")
+        self.btn_update_badge.clicked.connect(self._show_update_dialog)
+        header_layout.addWidget(self.btn_update_badge)
+
         self.btn_header_translate = UiSkillsButton()
         self.btn_header_translate.setObjectName("HeaderIconButton")
         self.btn_header_translate.setIcon(create_reddit_vector_icon("translate", size=20))
@@ -1539,6 +1613,7 @@ class RedditLinuxWindow(QMainWindow):
             menu.addSeparator()
             act_ads = menu.addAction("Anuncie no Reddit")
             act_settings = menu.addAction("Configurações")
+            act_update = menu.addAction(f"🚀 Versão {APP_VERSION} (Buscar Atualizações)")
             act_logout = menu.addAction("🚪 Encerrar Sessão (Sair)")
             chosen = menu.exec(QCursor.pos())
             if chosen == act_avatar:
@@ -1557,6 +1632,8 @@ class RedditLinuxWindow(QMainWindow):
                 webbrowser.open("https://ads.reddit.com")
             elif chosen == act_settings:
                 webbrowser.open("https://www.reddit.com/settings")
+            elif chosen == act_update:
+                self._manual_check_for_updates()
             elif chosen == act_logout:
                 self._on_logout_clicked()
         else:
@@ -1564,11 +1641,14 @@ class RedditLinuxWindow(QMainWindow):
             act_theme = menu.addAction(
                 "☀️ Tema Claro" if self.dark_mode else "🌙 Tema Escuro"
             )
+            act_update = menu.addAction(f"🚀 Versão {APP_VERSION} (Buscar Atualizações)")
             chosen = menu.exec(QCursor.pos())
             if chosen == act_login:
                 self.open_login_dialog()
             elif chosen == act_theme:
                 self._toggle_theme()
+            elif chosen == act_update:
+                self._manual_check_for_updates()
 
     def _toggle_games_section(self) -> None:
         self._games_expanded = not self._games_expanded

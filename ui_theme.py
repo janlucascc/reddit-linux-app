@@ -1067,6 +1067,93 @@ def build_stylesheet(dark: bool = True) -> str:
     }}
 
     /* ======================================================================
+       11b. Notificação de Atualização e Modal Multi-Formato (.rpm / .deb / .appimage)
+       ====================================================================== */
+    QPushButton#UpdateBadgeButton, QPushButton.UpdateBadgeButton {{
+        background-color: {p['badge_op_soft']};
+        color: {p['action_link']};
+        border: 1px solid {p['action_link']};
+        border-radius: 14px;
+        padding: 3px 10px;
+        font-size: 12px;
+        font-weight: 700;
+    }}
+    QPushButton#UpdateBadgeButton:hover, QPushButton.UpdateBadgeButton:hover {{
+        background-color: {p['action_link']};
+        color: #FFFFFF;
+    }}
+
+    QDialog#UpdateDialog {{
+        background-color: {p['canvas_default']};
+    }}
+    QFrame#UpdateDialogCard {{
+        background-color: {p['surface_card']};
+        border: 1px solid {p['border_default']};
+        border-radius: 12px;
+    }}
+    QLabel#UpdateTitle {{
+        color: {p['text_primary']};
+        font-size: 18px;
+        font-weight: 800;
+    }}
+    QLabel#UpdateSubtitle {{
+        color: {p['text_secondary']};
+        font-size: 13px;
+    }}
+    QLabel.FormatBadge {{
+        background-color: {p['surface_interactive']};
+        color: {p['text_primary']};
+        border: 1px solid {p['border_subtle']};
+        border-radius: 6px;
+        padding: 4px 10px;
+        font-size: 12px;
+        font-weight: 600;
+    }}
+    QLabel#FormatCmdHint {{
+        background-color: {p['canvas_subtle']};
+        color: {p['text_secondary']};
+        border: 1px solid {p['border_subtle']};
+        border-radius: 6px;
+        padding: 4px 8px;
+        font-family: "DejaVu Sans Mono", "Fira Code", monospace;
+        font-size: 11px;
+    }}
+    QTextBrowser#UpdateNotesBrowser {{
+        background-color: {p['canvas_subtle']};
+        color: {p['text_primary']};
+        border: 1px solid {p['border_subtle']};
+        border-radius: 8px;
+        padding: 10px;
+        font-size: 13px;
+    }}
+    QPushButton.UpdateActionBtn {{
+        background-color: {p['brand_accent']};
+        color: #0E1113;
+        border: none;
+        border-radius: 16px;
+        padding: 7px 16px;
+        font-size: 13px;
+        font-weight: 700;
+    }}
+    QPushButton.UpdateActionBtn:hover {{
+        background-color: {p['brand_accent_hover']};
+    }}
+    QPushButton.UpdateSecondaryBtn {{
+        background-color: {p['surface_interactive']};
+        color: {p['text_primary']};
+        border: 1px solid {p['border_default']};
+        border-radius: 16px;
+        padding: 6px 14px;
+        font-size: 12px;
+        font-weight: 600;
+    }}
+    QPushButton.UpdateSecondaryBtn:hover {{
+        background-color: {p['surface_interactive_hover']};
+        border-color: {p['action_link']};
+        color: {p['action_link']};
+    }}
+
+    /* ======================================================================
        12. ScrollAreas, Menus e Tooltips
        ====================================================================== */
     QScrollArea {{
