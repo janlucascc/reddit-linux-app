@@ -1339,6 +1339,7 @@ class PostCardWidget(QFrame):
         self.btn_more = UiSkillsButton("•••")
         self.btn_more.setProperty("class", "PillButton")
         self.btn_more.setFixedSize(48, 30)
+        self.btn_more.setAccessibleName("Mais opções da publicação")
         self.btn_more.setToolTip("Mais opções")
         self.btn_more.clicked.connect(self._show_more_menu)
         header_row.addWidget(self.btn_more)
@@ -1428,7 +1429,7 @@ class PostCardWidget(QFrame):
         img_layout.setSpacing(4)
 
         expected_h = self._compute_reserved_media_height(max_w=640, max_h=380)
-        self.image_label = QLabel("Carregando mídia...")
+        self.image_label = QLabel("Carregando mídia…")
         self.image_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.image_label.setFixedHeight(expected_h)
         self.image_label.setProperty("role", "muted")
@@ -1472,6 +1473,7 @@ class PostCardWidget(QFrame):
         self.btn_upvote = UiSkillsButton("⇧")
         self.btn_upvote.setObjectName("VoteButton")
         self.btn_upvote.setFixedSize(28, 28)
+        self.btn_upvote.setAccessibleName("Votar positivamente na publicação")
         self.btn_upvote.setToolTip("Upvote")
         self.btn_upvote.clicked.connect(lambda: self._on_vote_clicked(1))
         vp_layout.addWidget(self.btn_upvote)
@@ -1484,6 +1486,7 @@ class PostCardWidget(QFrame):
         self.btn_downvote = UiSkillsButton("⇩")
         self.btn_downvote.setObjectName("VoteButton")
         self.btn_downvote.setFixedSize(28, 28)
+        self.btn_downvote.setAccessibleName("Votar negativamente na publicação")
         self.btn_downvote.setToolTip("Downvote")
         self.btn_downvote.clicked.connect(lambda: self._on_vote_clicked(-1))
         vp_layout.addWidget(self.btn_downvote)
@@ -1502,6 +1505,7 @@ class PostCardWidget(QFrame):
         self.translate_btn = UiSkillsButton()
         self.translate_btn.setProperty("class", "TranslateButton")
         self.translate_btn.setFixedHeight(32)
+        self.translate_btn.setAccessibleName("Traduzir publicação")
         self.translate_btn.clicked.connect(
             lambda: self.translate_post_requested.emit(self.post, self)
         )
@@ -1519,6 +1523,7 @@ class PostCardWidget(QFrame):
         self.save_btn = UiSkillsButton()
         self.save_btn.setProperty("class", "PillButton")
         self.save_btn.setFixedHeight(32)
+        self.save_btn.setAccessibleName("Salvar publicação")
         self._sync_save_button()
         self.save_btn.clicked.connect(self._on_save_clicked)
         actions_row.addWidget(self.save_btn)
@@ -1737,7 +1742,7 @@ class PostCardWidget(QFrame):
         if not isValid(self) or not isValid(self.translate_btn):
             return
         if loading:
-            self.translate_btn.setText("⏳...")
+            self.translate_btn.setText("⏳…")
             self.translate_btn.setEnabled(False)
         else:
             self.translate_btn.setEnabled(True)
@@ -2022,7 +2027,7 @@ class CommentRowWidget(QFrame):
 
         self.reply_input = QPlainTextEdit()
         self.reply_input.setPlaceholderText(
-            f"Responder a u/{comment.author} em Markdown..."
+            f"Responder a u/{comment.author} em Markdown…"
         )
         self.reply_input.setFixedHeight(84)
         rb_layout.addWidget(self.reply_input)
@@ -2192,7 +2197,7 @@ class CommentRowWidget(QFrame):
         if not isValid(self) or not isValid(self.tr_btn):
             return
         if loading:
-            self.tr_btn.setText("⏳...")
+            self.tr_btn.setText("⏳…")
             self.tr_btn.setEnabled(False)
         else:
             self.tr_btn.setEnabled(True)

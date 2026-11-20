@@ -162,7 +162,7 @@ class CreatePostDialog(QDialog):
         title_box.addLayout(t_header)
 
         self.title_input = QLineEdit()
-        self.title_input.setPlaceholderText("Um título claro e interessante...")
+        self.title_input.setPlaceholderText("Um título claro e interessante…")
         self.title_input.setMaxLength(300)
         self.title_input.textChanged.connect(self._on_title_changed)
         title_box.addWidget(self.title_input)
@@ -210,7 +210,7 @@ class CreatePostDialog(QDialog):
         self.editor_stack = QStackedWidget()
         self.body_text = QTextEdit()
         self.body_text.setPlaceholderText(
-            "Escreva sua postagem aqui (opcional)... Suporta formatação completa em Markdown."
+            "Escreva sua postagem aqui (opcional)… Suporta formatação completa em Markdown."
         )
         self.editor_stack.addWidget(self.body_text)
 
@@ -276,7 +276,7 @@ class CreatePostDialog(QDialog):
 
         self.poll_context_input = QLineEdit()
         self.poll_context_input.setPlaceholderText(
-            "Descreva brevemente a pergunta da sua enquete..."
+            "Descreva brevemente a pergunta da sua enquete…"
         )
         pp_layout.addWidget(self.poll_context_input)
 

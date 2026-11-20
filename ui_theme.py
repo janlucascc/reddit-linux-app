@@ -430,15 +430,6 @@ def build_stylesheet(dark: bool = True) -> str:
         color: {p['brand_accent']};
     }}
 
-    QLabel#NotificationBadge {{
-        background-color: {p['brand_accent']};
-        color: #FFFFFF;
-        font-size: 10px;
-        font-weight: 800;
-        border-radius: 8px;
-        padding: 1px 5px;
-    }}
-
     QLabel#LinuxBrandTag {{
         background-color: {p['brand_accent']};
         color: {p['text_inverse']};
